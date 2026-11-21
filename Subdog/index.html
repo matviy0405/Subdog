@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Subdog — конструктор комплекту підписок</title>
+  <meta name="description" content="Оберіть мету й сферу — Subdog збере комплект підписок для навчання й роботи та порахує вартість на місяць і на рік, у тому числі для команди.">
+  <meta name="theme-color" content="#05030c">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%B6%3C/text%3E%3C/svg%3E">
+
+  <!-- Manrope (заголовки), Inter (текст), JetBrains Mono (підписи) — усі мають кирилицю. Без інтернету працюють запасні Helvetica Neue / Arial. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Inter:wght@300;400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body>
+  <div class="ambient" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><span class="grid-lines"></span><span class="grain"></span></div>
+  <a class="skip" href="#app" data-i18n="Перейти до вмісту">Перейти до вмісту</a>
+
+  <header class="site-header" id="siteHeader">
+    <div class="wrap">
+      <div class="bar">
+        <a class="logo" href="#/" aria-label="Subdog — на головну" data-i18n-label="Subdog — на головну">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 12.5c-3 .8-4.6 5.5-2.6 9.5 1 2 3.4 2.2 4.4.4"/>
+            <path d="M24 12.5c3 .8 4.6 5.5 2.6 9.5-1 2-3.4 2.2-4.4.4"/>
+            <path d="M9.5 12c1-3.4 3.9-5.5 6.5-5.5s5.5 2.1 6.5 5.5v7.5c0 3.9-3 6.5-6.5 6.5s-6.5-2.6-6.5-6.5z"/>
+            <circle cx="12.7" cy="15.5" r="1" fill="currentColor" stroke="none"/>
+            <circle cx="19.3" cy="15.5" r="1" fill="currentColor" stroke="none"/>
+            <path d="M14.4 20.2h3.2l-1.6 1.9z" fill="currentColor"/>
+          </svg>
+          Subdog
+        </a>
+        <button class="menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="nav">Меню</button>
+        <nav class="nav" id="nav" aria-label="Основна навігація" data-i18n-label="Основна навігація"></nav>
+        <button class="lang-btn" id="langBtn" type="button" aria-label="Switch to English" title="English">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="app" tabindex="-1"><div class="wrap"><p class="muted" data-i18n="Завантаження…">Завантаження…</p></div></main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p id="footNote">Ціни орієнтовні — звіряйте їх на сайтах сервісів. Назви належать їхнім власникам; Subdog з ними не пов'язаний.</p>
+      <p><span data-i18n="Навчальний проєкт">Навчальний проєкт</span> · <a href="tests.html" data-i18n="Сторінка тестів">Сторінка тестів</a></p>
+    </div>
+  </footer>
+
+  <dialog id="dlg" aria-labelledby="dlgTitle"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="data/catalog.js"></script>
+  <script src="js/calc.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

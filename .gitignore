@@ -1,0 +1,8 @@
+# local server data (accounts, sets, catalog edits) must never be published
+server-data/
+# editor / OS files
+.vs/
+.vscode/
+.claude/
+*.tmp
+Thumbs.db

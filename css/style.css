@@ -402,7 +402,11 @@ input[type='range'] {
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+}
+
+.builder__search {
+  margin: 14px 0 18px;
 }
 
 .chip {

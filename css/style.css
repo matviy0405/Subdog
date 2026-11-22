@@ -165,7 +165,7 @@ s {
   font-size: 12px;
 }
 
-.header__menu {
+.header__bar .header__menu {
   display: none;
 }
 
@@ -916,6 +916,12 @@ input[type='range'] {
 
 .auth {
   max-width: 460px;
+  margin: 40px auto;
+}
+
+.auth .eyebrow,
+.auth h1 {
+  text-align: center;
 }
 
 .auth__tabs {
@@ -1037,7 +1043,7 @@ input[type='range'] {
     grid-template-columns: 1fr 1fr;
   }
 
-  .header__menu {
+  .header__bar .header__menu {
     display: inline-block;
   }
 

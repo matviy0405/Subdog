@@ -1,13 +1,3 @@
-# Subdog server for Windows: static files + JSON API (accounts, saved sets, admin catalog edits).
-# No Node/Python needed: only Windows PowerShell 5.1 (built into Windows 10/11).
-#
-#   powershell -ExecutionPolicy Bypass -File serve.ps1            -> http://localhost:8080
-#   powershell -ExecutionPolicy Bypass -File serve.ps1 -Port 9000 -AdminPassword "my-strong-password"
-#
-# Data is stored as JSON files in server-data/ (users, sets, catalog overrides). Passwords are hashed
-# with PBKDF2-SHA256 (120000 iterations + random salt). Roles are checked on the server.
-# This is a learning/demo server for one machine (single-threaded, HTTP only). For production use
-# HTTPS behind a real web server and a real database (see README).
 param(
   [int]$Port = 8080,
   [string]$DataDir = '',
@@ -33,7 +23,6 @@ $types = @{
 }
 $csp = "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
-# ---------------------------------------------------------------- storage
 function Load-List([string]$name) {
   $p = Join-Path $DataDir $name
   $list = [System.Collections.ArrayList]::new()
@@ -50,7 +39,6 @@ function Save-Json([string]$name, $obj) {
   Move-Item -Force -LiteralPath $tmp -Destination $p
 }
 
-# ---------------------------------------------------------------- passwords and tokens
 function Get-Hash([string]$pw, [byte[]]$salt) {
   $d = New-Object Security.Cryptography.Rfc2898DeriveBytes($pw, $salt, 120000, [Security.Cryptography.HashAlgorithmName]::SHA256)
   try { return [Convert]::ToBase64String($d.GetBytes(32)) } finally { $d.Dispose() }
@@ -66,11 +54,10 @@ function New-RandomBytes([int]$n) { $b = New-Object byte[] $n; $rng.GetBytes($b)
 function New-Token { return -join ((New-RandomBytes 32) | ForEach-Object { $_.ToString('x2') }) }
 function New-Id([string]$prefix) { return $prefix + (-join ((New-RandomBytes 8) | ForEach-Object { $_.ToString('x2') })) }
 
-# ---------------------------------------------------------------- state
 $script:users = Load-List 'users.json'
 $script:sets = Load-List 'sets.json'
-$script:sessions = @{}      # token -> @{ userId; expires }
-$script:fails = @{}         # "ip|email" -> @{ n; first }
+$script:sessions = @{}
+$script:fails = @{}
 
 if ($script:users.Count -eq 0) {
   $adminPw = $AdminPassword
@@ -81,7 +68,6 @@ if ($script:users.Count -eq 0) {
   Save-Json 'users.json' $script:users
 }
 
-# ---------------------------------------------------------------- helpers
 function Fail([int]$code, [string]$msg) { throw (New-Object psobject -Property @{ ApiCode = $code; ApiError = $msg }) }
 function Test-Num($v) { return ($v -is [int] -or $v -is [long] -or $v -is [double] -or $v -is [decimal]) }
 function Test-Str($v, [int]$max, [int]$min = 0) { return (($v -is [string]) -and $v.Length -ge $min -and $v.Length -le $max) }
@@ -125,7 +111,6 @@ function New-Session($user) {
   return $tok
 }
 
-# ---------------------------------------------------------------- validation of client data
 function Clean-State($st) {
   if (-not ($st -is [System.Collections.IDictionary])) { Fail 400 'invalid_set' }
   $items = [System.Collections.ArrayList]::new()
@@ -169,7 +154,6 @@ function Test-Catalog($o) {
   return $true
 }
 
-# ---------------------------------------------------------------- API
 function Handle-Api($ctx, [string]$path) {
   $req = $ctx.Request; $res = $ctx.Response; $m = $req.HttpMethod
   $ip = $req.RemoteEndPoint.Address.ToString()
@@ -199,7 +183,7 @@ function Handle-Api($ctx, [string]$path) {
     foreach ($u in $script:users) { if ($u['email'] -eq $email) { $user = $u } }
     $ok = $false
     if ($user -and $pw.Length -le 200) { $ok = Test-Equal (Get-Hash $pw ([Convert]::FromBase64String($user['salt']))) $user['hash'] }
-    elseif (-not $user) { $null = Get-Hash 'x' (New-RandomBytes 16) }   # same work for unknown e-mail
+    elseif (-not $user) { $null = Get-Hash 'x' (New-RandomBytes 16) }
     if (-not $ok) {
       if (-not $f -or $f.first -le (Get-Date).AddMinutes(-10)) { $f = @{ n = 0; first = (Get-Date) } }
       $f.n++; $script:fails[$key] = $f
@@ -262,13 +246,11 @@ function Handle-Api($ctx, [string]$path) {
   Fail 404 'not_found'
 }
 
-# ---------------------------------------------------------------- static files
 function Handle-Static($ctx, [string]$path) {
   $req = $ctx.Request; $res = $ctx.Response
   if ($req.HttpMethod -ne 'GET' -and $req.HttpMethod -ne 'HEAD') { return Send-Raw $res 405 ([byte[]]@()) 'text/plain' }
   if ($path -eq '/') { $path = '/index.html' }
   $rel = $path.TrimStart('/')
-  # never serve the data folder, dotfiles or the server script itself
   if ($rel -match '(^|[\\/])(server-data|\.)' -or $rel -match '\.ps1$') { return Send-Raw $res 404 ([byte[]]@()) 'text/plain' }
   $full = [IO.Path]::GetFullPath((Join-Path $root $rel))
   if (-not $full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($DataDir, [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path $full -PathType Leaf)) {
@@ -280,7 +262,6 @@ function Handle-Static($ctx, [string]$path) {
   Send-Raw $res 200 ([IO.File]::ReadAllBytes($full)) $type ($req.HttpMethod -eq 'HEAD')
 }
 
-# ---------------------------------------------------------------- main loop
 $listener = New-Object System.Net.HttpListener
 $listener.Prefixes.Add("http://localhost:$Port/")
 $listener.Start()
@@ -289,7 +270,6 @@ Write-Host "Subdog running at http://localhost:$Port  (data: $DataDir)  Ctrl+C t
 try {
   while ($listener.IsListening) {
     $ctx = $listener.GetContext()
-    # One bad request must never stop the server.
     try {
       $path = [Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath)
       if ($path.StartsWith('/api/')) { Handle-Api $ctx $path } else { Handle-Static $ctx $path }

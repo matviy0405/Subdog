@@ -1,995 +1,1620 @@
-/* Subdog — інтерфейс / interface. Залежить від Calc (calc.js), I18n (i18n.js) та Api (api.js).
-   Усі видимі рядки загорнуто в T('український текст'): англійський переклад лежить у js/i18n.js. */
-(function () {
+$(function () {
   'use strict';
 
-  const { priceFor, setTotals, duplicates, recommend, PLAN_LABELS, r2 } = Calc;
-  const T = I18n.t;
-  const L = I18n.L;
-
-  /* ---------- утиліти ---------- */
-  const $ = (s, root) => (root || document).querySelector(s);
-  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  // Усі ціни в доларах США. Цілі числа без копійок, інакше два знаки: $20, $4.99
-  const fmts = {};
-  const fmt = (n) => {
-    const loc = I18n.locale();
-    const key = loc + (Number.isInteger(n) ? 'i' : 'f');
-    if (!fmts[key]) fmts[key] = new Intl.NumberFormat(loc, Number.isInteger(n) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return fmts[key].format(n);
+  var T = I18n.t;
+  var L = I18n.L;
+  var PLANS = ['individual', 'student', 'team'];
+  var SOURCES = {
+    official: ['tag_type_good', 'Звірено з офіційною сторінкою'],
+    partial: ['', 'Частково звірено з офіційною сторінкою'],
+    unverified: ['tag_type_warn', 'За сторонніми джерелами, звірте на сайті'],
+    manual: ['', 'Введено адміністратором']
   };
-  const money = (n) => '$' + fmt(n);
-  const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '#');
-  const fmtDate = (iso) => {
-    if (!iso) return '—';
-    const d = new Date(iso + 'T00:00:00Z');
-    return isNaN(d) ? iso : d.toLocaleDateString(I18n.locale(), { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
-  };
-  const mono = (s, cls) => `<span class="mono ${cls || ''}" aria-hidden="true">${esc(s.name.charAt(0))}</span>`;
-  const PLANS = ['individual', 'student', 'team'];
-  const planLabel = (p) => T(PLAN_LABELS[p]);
-  const serviceWord = (n) => I18n.plural(n, ['сервіс', 'сервіси', 'сервісів'], ['service', 'services']);
 
-  /* ---------- стан ---------- */
-  const S = {
+  var state = {
     data: null,
     byId: {},
     user: null,
-    set: { items: [], plan: 'individual', seats: 3, yearly: true },
+    set: {items: [], plan: 'individual', seats: 3, yearly: true},
     compare: [],
-    filters: { q: '', cat: 'all', max: null, free: false, student: false, team: false, sort: 'name' },
-    adder: { q: '', cat: 'all' },
-    wiz: { step: 1, mode: null, role: null, sphere: null },
-    accTab: 'login',
+    filters: newFilters(),
+    adder: {q: '', cat: 'all'},
+    account: 'login',
+    wizard: {step: 1, mode: null, role: null, sphere: null}
   };
+  var route = {name: '', arg: ''};
+  var pages = {};
+  var header;
+  var dialog;
+  var toastTimer;
+  var formats = {};
 
-  const svc = (id) => S.byId[id];
-  const catOf = (id) => (S.data.categories.find((c) => c.id === id) || { name: id, icon: '•' });
-  const catName = (id) => L(catOf(id), 'name');
-  const calcOpts = () => ({ plan: S.set.plan, seats: S.set.seats, useYearly: S.set.yearly });
-  const totals = (opts) => setTotals(S.set.items, S.byId, opts || calcOpts());
-  const inSet = (id) => S.set.items.some((i) => i.id === id);
-  const isAdmin = () => !!(S.user && S.user.role === 'admin');
-  // Тестові дані адміна показуємо лише під час локальної розробки
-  const isLocalHost = () => location.protocol === 'file:' || ['localhost', '127.0.0.1', '[::1]', ''].includes(location.hostname);
+  function newFilters(cat) {
+    return {q: '', cat: cat || 'all', max: null, free: false, student: false, team: false, sort: 'name'};
+  }
+
+  function esc(text) {
+    return String(text == null ? '' : text).replace(/[&<>"']/g, function (c) {
+      return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+  }
+
+  function fmt(n) {
+    var locale = I18n.locale();
+    var whole = n % 1 === 0;
+    var key = locale + whole;
+    if (!formats[key]) {
+      formats[key] = new Intl.NumberFormat(locale, whole ?
+        {maximumFractionDigits: 0} :
+        {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+    return formats[key].format(n);
+  }
+
+  function money(n) {
+    return '$' + fmt(n);
+  }
+
+  function formatDate(iso) {
+    var date = iso ? new Date(iso + 'T00:00:00Z') : null;
+    if (!date || isNaN(date)) {
+      return '—';
+    }
+    return date.toLocaleDateString(I18n.locale(), {year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC'});
+  }
+
+  function safeUrl(url) {
+    return /^https?:\/\//i.test(url || '') ? url : '#';
+  }
+
+  function planLabel(plan) {
+    return T(Calc.PLAN_LABELS[plan]);
+  }
+
+  function serviceWord(n) {
+    return I18n.plural(n, ['сервіс', 'сервіси', 'сервісів'], ['service', 'services']);
+  }
+
+  function service(id) {
+    return state.byId[id];
+  }
+
+  function category(id) {
+    var found = null;
+    $.each(state.data.categories, function (i, item) {
+      if (item.id === id) {
+        found = item;
+      }
+    });
+    return found || {id: id, name: id};
+  }
+
+  function categoryName(id) {
+    return L(category(id), 'name');
+  }
+
+  function groupName(group) {
+    var english = I18n.lang() === 'en' ? (state.data.groups_en || {}) : {};
+    return english[group] || (state.data.groups || {})[group] || categoryName(group);
+  }
+
+  function inSet(id) {
+    var found = false;
+    $.each(state.set.items, function (i, item) {
+      if (item.id === id) {
+        found = true;
+      }
+    });
+    return found;
+  }
+
+  function isAdmin() {
+    return !!(state.user && state.user.role === 'admin');
+  }
+
+  function isLocalHost() {
+    return location.protocol === 'file:' || $.inArray(location.hostname, ['localhost', '127.0.0.1', '[::1]', '']) !== -1;
+  }
+
+  function totals(options) {
+    return Calc.setTotals(state.set.items, state.byId, options || {
+      plan: state.set.plan,
+      seats: state.set.seats,
+      useYearly: state.set.yearly
+    });
+  }
 
   function indexCatalog() {
-    S.byId = {};
-    S.data.services.forEach((s) => { S.byId[s.id] = s; });
+    state.byId = {};
+    $.each(state.data.services, function (i, item) {
+      state.byId[item.id] = item;
+    });
   }
 
   function sanitizeSet(raw) {
-    const base = { items: [], plan: 'individual', seats: 3, yearly: true };
-    if (!raw || typeof raw !== 'object') return base;
-    const seen = {};
-    const items = (Array.isArray(raw.items) ? raw.items : [])
-      .filter((i) => i && S.byId[i.id] && !seen[i.id] && (seen[i.id] = true))
-      .map((i) => {
-        const out = { id: i.id, free: !!i.free };
-        const q = Math.floor(Number(i.qty));
-        if (q >= 1) out.qty = Math.min(500, q); // ліцензії саме для цього сервісу
-        return out;
-      });
-    return {
-      items: items,
-      plan: PLANS.includes(raw.plan) ? raw.plan : 'individual',
-      seats: Math.min(500, Math.max(1, Math.floor(Number(raw.seats) || 3))),
-      yearly: raw.yearly !== false,
-    };
+    var result = {items: [], plan: 'individual', seats: 3, yearly: true};
+    var seen = {};
+    if (!raw || typeof raw !== 'object') {
+      return result;
+    }
+    $.each($.isArray(raw.items) ? raw.items : [], function (i, item) {
+      var qty;
+      var clean;
+      if (!item || !state.byId[item.id] || seen[item.id]) {
+        return;
+      }
+      seen[item.id] = true;
+      clean = {id: item.id, free: !!item.free};
+      qty = Math.floor(Number(item.qty));
+      if (qty >= 1) {
+        clean.qty = Math.min(500, qty);
+      }
+      result.items.push(clean);
+    });
+    if ($.inArray(raw.plan, PLANS) !== -1) {
+      result.plan = raw.plan;
+    }
+    result.seats = Math.min(500, Math.max(1, Math.floor(Number(raw.seats) || 3)));
+    result.yearly = raw.yearly !== false;
+    return result;
   }
 
-  function persist() {
-    Api.saveSet(S.set);
-    Api.saveCompare(S.compare);
-    chrome();
-  }
-
-  /* ---------- UI-помічники ---------- */
-  let toastTimer;
-  function toast(msg) {
-    const el = $('#toast');
-    el.textContent = msg;
-    el.classList.add('show');
+  function toast(message) {
+    var elem = $('.toast');
+    elem.text(message).addClass('toast_visible_yes');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+    toastTimer = setTimeout(function () {
+      elem.removeClass('toast_visible_yes');
+    }, 2600);
   }
 
-  function formDialog(opts) {
-    return new Promise((resolve) => {
-      const dlg = $('#dlg');
-      dlg.innerHTML = `<form novalidate><h2 id="dlgTitle">${esc(opts.title)}</h2>${opts.body || ''}<p class="form-error" role="alert" hidden></p>
-        <div class="dlg-actions"><button type="button" class="btn ghost" data-close>${esc(opts.cancel || T('Скасувати'))}</button>
-        <button class="btn ${opts.danger ? 'danger' : 'primary'}">${esc(opts.ok || T('Зберегти'))}</button></div></form>`;
-      const form = $('form', dlg);
-      let done = false;
-      const finish = (v) => { if (done) return; done = true; if (dlg.open) dlg.close(); resolve(v); };
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const fd = {};
-        new FormData(form).forEach((v, k) => { fd[k] = v; });
-        const err = opts.validate ? opts.validate(fd) : '';
-        if (err) { const p = $('.form-error', form); p.textContent = err; p.hidden = false; return; }
-        finish(fd);
-      });
-      $('[data-close]', form).addEventListener('click', () => finish(null));
-      dlg.addEventListener('close', () => finish(null), { once: true });
-      dlg.showModal();
-      const first = $('input:not([type=hidden]), select, textarea', form);
-      if (first) first.focus();
+  function keyOf(elem) {
+    return (elem.attr('class') || '').split(' ')[0] + '|' + (elem.attr('data-id') || '');
+  }
+
+  function keepFocus(action) {
+    var active = $(document.activeElement);
+    var key = active.is('button, input, select') ? keyOf(active) : '';
+    var parts = key.split('|');
+    action();
+    if (key && parts[1]) {
+      $('.' + parts[0] + '[data-id="' + parts[1] + '"]').filter(':visible').first().focus();
+    }
+  }
+
+  function save() {
+    Api.saveSet(state.set);
+    Api.saveCompare(state.compare);
+    header.render();
+  }
+
+  function refresh() {
+    keepFocus(function () {
+      if (pages[route.name]) {
+        pages[route.name].render(route.arg);
+      }
+      header.render();
     });
   }
-  const confirmDialog = (title, text, ok, danger) =>
-    formDialog({ title: title, body: `<p>${esc(text)}</p>`, ok: ok || T('Так'), danger: !!danger }).then((r) => !!r);
 
-  /* ---------- статичні тексти index.html і мова ---------- */
-  function applyStatic() {
-    const lang = I18n.lang();
+  function translateStatic() {
+    var lang = I18n.lang();
     document.documentElement.lang = lang;
-    document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = T(el.getAttribute('data-i18n')); });
-    document.querySelectorAll('[data-i18n-label]').forEach((el) => { el.setAttribute('aria-label', T(el.getAttribute('data-i18n-label'))); });
-    const meta = $('meta[name="description"]');
-    if (meta) meta.setAttribute('content', T('Оберіть мету й сферу — Subdog збере комплект підписок для навчання й роботи та порахує вартість на місяць і на рік, у тому числі для команди.'));
-    const lb = $('#langBtn');
-    if (lb) {
-      lb.textContent = lang === 'uk' ? 'EN' : 'UA';
-      lb.setAttribute('aria-label', lang === 'uk' ? 'Switch to English' : 'Перемкнути на українську');
-      lb.setAttribute('title', lang === 'uk' ? 'English' : 'Українська');
+    $('[data-i18n]').each(function () {
+      $(this).text(T($(this).attr('data-i18n')));
+    });
+    $('[data-i18n-label]').each(function () {
+      $(this).attr('aria-label', T($(this).attr('data-i18n-label')));
+    });
+    $('[data-i18n-placeholder]').each(function () {
+      $(this).attr('placeholder', T($(this).attr('data-i18n-placeholder')));
+    });
+    $('meta[name="description"]').attr('content', T('Оберіть мету й сферу — Subdog збере комплект підписок для навчання й роботи та порахує вартість на місяць і на рік, у тому числі для команди.'));
+    $('.footer__note').text((state.data ? L(state.data, 'pricesNote') + ' ' : '') + T("Назви належать їхнім власникам; Subdog з ними не пов'язаний."));
+    header.renderLabels();
+  }
+
+  function logo(item, big) {
+    return '<span class="logo' + (big ? ' logo_size_big' : '') + '" aria-hidden="true">' + esc(item.name.charAt(0)) + '</span>';
+  }
+
+  function switchHtml(active) {
+    var html = '<div class="switch" role="group" aria-label="' + T('Тип плану') + '">';
+    $.each(PLANS, function (i, plan) {
+      html += '<button class="switch__item' + (plan === active ? ' switch__item_active_yes' : '') + '" type="button" data-id="' + plan + '" aria-pressed="' + (plan === active) + '">' + planLabel(plan) + '</button>';
+    });
+    return html + '</div>';
+  }
+
+  function priceInline(item, plan, seats) {
+    var price = Calc.priceFor(item, {plan: plan, seats: seats || 1, useYearly: false});
+    if (plan === 'student' && price.discount) {
+      return '<s>' + money(price.listMonthly) + '</s> ' + money(price.monthly);
     }
-    setMenuLabel();
+    return money(price.monthly);
   }
 
-  /* ---------- шапка ---------- */
-  function chrome() {
-    const route = currentRoute().name;
-    const links = [
-      ['', T('Головна'), ''],
-      ['catalog', T('Каталог'), ''],
-      ['builder', T('Конструктор'), S.set.items.length || ''],
-      ['compare', T('Порівняння'), S.compare.length || ''],
-      ['account', S.user ? T('Мої набори') : T('Вхід'), ''],
-    ];
-    if (isAdmin()) links.push(['admin', T('Адмін'), '']);
-    $('#nav').innerHTML = links.map(([r, label, n]) =>
-      `<a href="#/${r}" ${route === r || (r === 'catalog' && route === 'service') ? 'aria-current="page"' : ''}>${label}${n !== '' ? `<span class="pill">${n}</span>` : ''}</a>`).join('');
-    $('#footNote').textContent = (S.data ? L(S.data, 'pricesNote') + ' ' : '') + T("Назви належать їхнім власникам; Subdog з ними не пов'язаний.");
+  function badges(item) {
+    var html = '';
+    if (item.free) {
+      html += '<span class="tag tag_type_good">' + T('Є безкоштовний план') + '</span>';
+    }
+    if (item.studentDiscount > 0) {
+      html += '<span class="tag tag_type_accent">' + T('Студентам −{n}%', {n: item.studentDiscount}) + '</span>';
+    }
+    if (item.team && item.team.price != null) {
+      html += '<span class="tag">' + T('Командний план') + '</span>';
+    }
+    if (item.yearlyPrice != null && item.yearlyPrice < item.price * 12) {
+      html += '<span class="tag">' + T('Річний тариф −{n}%', {n: Math.round((1 - item.yearlyPrice / (item.price * 12)) * 100)}) + '</span>';
+    }
+    return html;
   }
 
-  /* ---------- роутер ---------- */
-  function currentRoute() {
-    const parts = location.hash.replace(/^#\/?/, '').split('/');
-    return { name: parts[0] || '', arg: parts[1] ? decodeURIComponent(parts[1]) : '' };
+  function serviceCard(item) {
+    var added = inSet(item.id);
+    var compared = $.inArray(item.id, state.compare) !== -1;
+    return '<article class="card service">' +
+      '<div class="service__head">' + logo(item) + '<div><h3><a href="#/service/' + encodeURIComponent(item.id) + '">' + esc(item.name) + '</a></h3><span class="muted small">' + esc(categoryName(item.category)) + '</span></div></div>' +
+      '<div class="tags">' + badges(item) + '</div>' +
+      '<p class="service__desc">' + esc(L(item, 'desc')) + '</p>' +
+      '<div class="service__price num">' + priceInline(item, state.set.plan, 1) + ' <small>' + (state.set.plan === 'team' ? T('/міс за людину') : T('/міс')) + '</small></div>' +
+      '<div class="service__actions">' +
+      '<button class="service__toggle button button_size_small ' + (added ? 'button_active_yes' : 'button_type_primary') + '" type="button" data-id="' + item.id + '" aria-pressed="' + added + '">' + (added ? T('✓ У наборі') : T('+ До набору')) + '</button>' +
+      '<button class="service__compare button button_size_small button_type_ghost' + (compared ? ' button_active_yes' : '') + '" type="button" data-id="' + item.id + '" aria-pressed="' + compared + '">' + (compared ? T('✓ Порівнюю') : T('Порівняти')) + '</button>' +
+      '</div></article>';
   }
-  const pageTitle = (name) => ({
-    catalog: T('Каталог'), builder: T('Конструктор набору'), compare: T('Порівняння підписок'),
-    account: T('Акаунт'), admin: T('Адмін-панель'), service: T('Картка підписки'),
-  }[name]);
 
-  let lastRouteKey = null;
-
-  /* Селектор елемента, що зараз у фокусі, щоб повернути фокус після перемальовування.
-     Лише кнопки, галочки й списки: текстові поля не чіпаємо, щоб не красти фокус у Tab. */
-  function focusSelector() {
-    const a = document.activeElement;
-    if (!a || !a.dataset) return '';
-    const ok = a.tagName === 'BUTTON' || a.tagName === 'SELECT' || (a.tagName === 'INPUT' && a.type === 'checkbox');
-    if (!ok) return '';
-    const v = a.dataset.v !== undefined ? `[data-v="${CSS.escape(a.dataset.v)}"]` : '';
-    if (a.dataset.act) return `[data-act="${a.dataset.act}"]` + v;
-    if (a.dataset.actChange) return `[data-act-change="${a.dataset.actChange}"]` + v;
-    if (a.dataset.bind) return `[data-bind="${a.dataset.bind}"]`;
-    return '';
-  }
-  const restoreFocus = (sel) => { if (!sel) return; const el = $(sel); if (el) el.focus({ preventScroll: true }); };
-
-  /* Перемальовує поточну сторінку. Якщо це та сама сторінка (змінили фільтр, план, мову),
-     позиція прокрутки сторінки й бічної панелі та фокус зберігаються; на нову сторінку — нагору. */
-  function render() {
-    if (!S.data) return;
-    const { name, arg } = currentRoute();
-    const key = name + '/' + arg;
-    const samePage = key === lastRouteKey;
-
-    const scrollY = window.scrollY;
-    const side = $('.filters');
-    const sideTop = side ? side.scrollTop : 0;
-    const focusSel = samePage ? focusSelector() : '';
-
-    const pages = { '': pageHome, catalog: pageCatalog, builder: pageBuilder, compare: pageCompare, account: pageAccount, admin: pageAdmin, service: pageService };
-    const fn = pages[name] || pageHome;
-    $('#app').innerHTML = `<div class="wrap">${fn(arg)}</div>`;
-    document.title = name === '' ? T('Subdog — конструктор комплекту підписок') : (pageTitle(name) || 'Subdog') + ' — Subdog';
-    chrome();
-
-    if (samePage) {
-      window.scrollTo({ top: scrollY, behavior: 'instant' });
-      const newSide = $('.filters');
-      if (newSide) newSide.scrollTop = sideTop;
-      restoreFocus(focusSel);
+  function toggleInSet(id) {
+    if (inSet(id)) {
+      state.set.items = $.grep(state.set.items, function (item) {
+        return item.id !== id;
+      });
+      toast(T('Прибрано з набору'));
     } else {
-      window.scrollTo({ top: 0, behavior: 'instant' });
+      state.set.items.push({id: id, free: false});
+      toast(T('Додано до набору'));
     }
-    lastRouteKey = key;
-    if (name === 'account' && S.user) fillSaved();
+    save();
   }
 
-  /* ---------- ціна: шматки HTML ---------- */
-  function priceInline(s, plan, seats) {
-    const p = priceFor(s, { plan: plan, seats: seats || 1, useYearly: false });
-    if (plan === 'student' && p.discount) return `<s>${money(p.listMonthly)}</s> <span>${money(p.monthly)}</span>`;
-    return money(p.monthly);
-  }
-  function badgesOf(s) {
-    const b = [];
-    if (s.free) b.push(`<span class="tag good">${T('Є безкоштовний план')}</span>`);
-    if (s.studentDiscount > 0) b.push(`<span class="tag brand">${T('Студентам −{n}%', { n: s.studentDiscount })}</span>`);
-    if (s.team && s.team.price != null) b.push(`<span class="tag">${T('Командний план')}</span>`);
-    if (s.yearlyPrice != null && s.yearlyPrice < s.price * 12) b.push(`<span class="tag">${T('Річний тариф −{n}%', { n: Math.round((1 - s.yearlyPrice / (s.price * 12)) * 100) })}</span>`);
-    return b.join('');
-  }
-  function planSwitch(extra) {
-    return `<div class="seg" role="group" aria-label="${T('Тип плану')}">${PLANS.map((p) =>
-      `<button type="button" data-act="plan" data-v="${p}" aria-pressed="${S.set.plan === p}">${planLabel(p)}</button>`).join('')}</div>${extra || ''}`;
-  }
-  const planUnit = () => (S.set.plan === 'team' ? T('/міс за людину') : T('/міс'));
-
-  /* =====================================================================
-     ГОЛОВНА
-     ===================================================================== */
-  /* Абстрактна 3D-композиція: скляна сфера, кільця орбіт, куби. Чистий CSS, без зображень. */
-  function heroArt() {
-    const ring = '<div class="ring"></div><div class="ring r2"></div>';
-    const cube = (cls) => `<div class="cube ${cls}"><i></i><i></i><i></i><i></i><i></i><i></i></div>`;
-    return `<div class="hero-art" aria-hidden="true"><div class="halo"></div>
-      <div class="ring-set back">${ring}</div><div class="orb"></div><div class="ring-set front">${ring}</div>
-      ${cube('c1')}${cube('c2')}<span class="spark s1"></span><span class="spark s2"></span><span class="spark s3"></span></div>`;
-  }
-
-  function pageHome() {
-    return `
-    <section class="hero" aria-labelledby="h-hero">
-      <div class="hero-top">
-        <div>
-          <p class="eyebrow">${T('Конструктор підписок')}</p>
-          <h1 id="h-hero">${T('Підписки для навчання й роботи —')} <span class="grad">${T('одним комплектом')}</span></h1>
-          <p class="lead">${T('Оберіть мету й сферу — Subdog запропонує готовий набір сервісів. Приберіть зайве, додайте потрібне й одразу побачите вартість на місяць і на рік, у тому числі для всієї команди.')}</p>
-          <div class="row"><a class="btn primary" href="#/catalog">${T('Відкрити каталог')} <span class="arrow" aria-hidden="true">→</span></a><a class="btn ghost" href="#/builder">${T('Мій набір')}${S.set.items.length ? ' (' + S.set.items.length + ')' : ''}</a></div>
-          <ul class="facts">
-            <li><span class="n">01</span><span>${T('{n} сервісів у {c} категоріях', { n: S.data.services.length, c: S.data.categories.length })}</span></li>
-            <li><span class="n">02</span><span>${T('Індивідуальний, студентський і командний плани')}</span></li>
-            <li><span class="n">03</span><span>${T('Сума на місяць і на рік перераховується одразу')}</span></li>
-          </ul>
-        </div>
-        <div class="hero-side">${heroArt()}<div class="card wizard" id="wizard">${wizardHtml()}</div></div>
-      </div>
-    </section>
-
-    <section class="section" aria-labelledby="h-presets">
-      <div class="section-head"><div><p class="eyebrow">${T('01 — Готові набори')}</p><h2 id="h-presets">${T('Почніть із готового')}</h2></div><span class="muted small">${T('Ціни рахуються за планом набору')}</span></div>
-      <div class="grid auto">${S.data.presets.map(presetCard).join('')}</div>
-    </section>
-
-    <section class="section" aria-labelledby="h-biz">
-      <div class="biz">
-        <div>
-          <p class="eyebrow">${T('02 — Для бізнесу')}</p>
-          <h2 id="h-biz">${T('Замовляєте на всю команду? Рахуйте одразу на всіх')}</h2>
-          <p>${T('Оберіть командний план і вкажіть кількість людей — калькулятор покаже суму за всіх і ціну на одну людину. Річні тарифи зазвичай дешевші.')}</p>
-          <button class="btn primary" data-act="apply-preset" data-v="own-business">${T('Набір для бізнесу')} <span class="arrow" aria-hidden="true">→</span></button>
-        </div>
-        <ul>
-          <li><span class="n">01</span><span>${T('Ціна за людину × кількість людей')}</span></li>
-          <li><span class="n">02</span><span>${T('Швидкий вибір: 5, 10, 25 або 50 місць')}</span></li>
-          <li><span class="n">03</span><span>${T('Видно економію від річних тарифів')}</span></li>
-        </ul>
-      </div>
-    </section>
-
-    <section class="section" aria-labelledby="h-how">
-      <p class="eyebrow">${T('03 — Як це працює')}</p>
-      <h2 id="h-how" style="margin-bottom:32px">${T('Три кроки до готового набору')}</h2>
-      <div class="steps-3">
-        <div><p class="eyebrow">01</p><h3>${T('Дайте три відповіді')}</h3><p class="muted">${T('Навчання, робота чи обидва; хто ви; у якій сфері.')}</p></div>
-        <div><p class="eyebrow">02</p><h3>${T('Відредагуйте набір')}</h3><p class="muted">${T('Додайте або приберіть сервіси, увімкніть безкоштовні плани, перемкніть Індивідуальний / Студентський / Командний.')}</p></div>
-        <div><p class="eyebrow">03</p><h3>${T('Перегляньте суму й збережіть')}</h3><p class="muted">${T('Підсумок перераховується одразу. Набір лишається в браузері, а в акаунті — назавжди.')}</p></div>
-      </div>
-    </section>
-
-    <section class="section" aria-labelledby="h-cats">
-      <p class="eyebrow">${T('04 — Каталог')}</p>
-      <h2 id="h-cats" style="margin-bottom:32px">${T('Категорії')}</h2>
-      <div class="cat-list">${S.data.categories.map((c) => {
-        const list = S.data.services.filter((s) => s.category === c.id);
-        return `<a href="#/catalog" data-act="goto-cat" data-v="${c.id}"><h3>${esc(L(c, 'name'))}</h3><span class="muted small">${list.map((s) => esc(s.name)).join(', ')}</span></a>`;
-      }).join('')}</div>
-    </section>`;
-  }
-
-  function wizardHtml() {
-    const w = S.data.wizard;
-    const st = S.wiz;
-    const dots = `<div class="steps" aria-hidden="true">${[1, 2, 3].map((i) => `<span class="${st.step >= i ? 'done' : ''}"></span>`).join('')}</div>`;
-    const modeT = w.modes.find((m) => m.id === st.mode);
-    const roleT = w.roles.find((r) => r.id === st.role);
-    const picked = [modeT && L(modeT, 'title'), roleT && L(roleT, 'title')].filter(Boolean).map((x) => `<span class="tag brand">${esc(x)}</span>`).join('');
-    let body = '';
-    if (st.step === 1) {
-      body = `<h2>${T('Для чого потрібен набір?')}</h2><div class="choices">${w.modes.map((m) =>
-        `<button class="choice" data-act="wiz-mode" data-v="${m.id}" aria-pressed="${st.mode === m.id}"><span class="ico" aria-hidden="true">${m.icon}</span><span><b>${esc(L(m, 'title'))}</b><small>${esc(L(m, 'text'))}</small></span></button>`).join('')}</div>`;
-    } else if (st.step === 2) {
-      body = `<h2>${T('Хто ви?')}</h2><div class="picked">${picked}</div><div class="choices">${w.roles.filter((r) => r.mode === st.mode).map((r) =>
-        `<button class="choice" data-act="wiz-role" data-v="${r.id}" aria-pressed="${st.role === r.id}"><span><b>${esc(L(r, 'title'))}</b><small>${esc(L(r, 'text'))}</small></span></button>`).join('')}</div>
-        <p style="margin-top:12px"><button class="btn ghost sm" data-act="wiz-back">${T('← Назад')}</button></p>`;
+  function toggleCompare(id) {
+    var index = $.inArray(id, state.compare);
+    if (index !== -1) {
+      state.compare.splice(index, 1);
     } else {
-      body = `<h2>${T('Яка ваша сфера?')}</h2><div class="picked">${picked}</div><div class="choices">${w.spheres.map((x) =>
-        `<button class="choice" data-act="wiz-sphere" data-v="${x.id}" aria-pressed="${st.sphere === x.id}"><span class="ico" aria-hidden="true">${x.icon}</span><span><b>${esc(L(x, 'title'))}</b></span></button>`).join('')}</div>
-        <div class="row" style="margin-top:12px"><button class="btn ghost sm" data-act="wiz-back">${T('← Назад')}</button>
-        <button class="btn primary" data-act="wiz-go" ${st.sphere ? '' : 'disabled'}>${T('Зібрати набір')}</button></div>`;
+      state.compare.push(id);
+      if (state.compare.length > 2) {
+        state.compare.shift();
+      }
+      if (state.compare.length === 2) {
+        toast(T('Готово — відкрийте «Порівняння»'));
+      }
     }
-    return dots + body;
+    save();
   }
 
-  function presetCard(p) {
-    const items = p.items.filter((i) => svc(i.id));
-    const opts = { plan: p.plan, seats: p.seats || 3, useYearly: true };
-    const t = setTotals(items, S.byId, opts);
-    return `<article class="card preset"><div class="row between"><h3 style="margin:0">${esc(L(p, 'name'))}</h3><span class="tag">${planLabel(p.plan)}${p.plan === 'team' ? ', ' + T('{n} ос.', { n: p.seats || 3 }) : ''}</span></div>
-      <p class="muted small" style="margin:0">${esc(L(p, 'tagline'))}</p>
-      <div><span class="price num">${money(t.monthly)}</span> <span class="muted">${T('/міс')}</span><div class="muted small num">${T('{y} на рік · {n} {w}', { y: money(t.yearly), n: t.count, w: serviceWord(t.count) })}</div></div>
-      <button class="btn primary" data-act="apply-preset" data-v="${p.id}">${T('Взяти цей набір')}</button></article>`;
-  }
-
-  /* =====================================================================
-     КАТАЛОГ
-     ===================================================================== */
-  function maxSlider() {
-    const opts = { plan: S.set.plan, seats: 1, useYearly: false };
-    const m = Math.max(...S.data.services.map((s) => priceFor(s, opts).monthly), 10);
-    return Math.ceil(m / 5) * 5;
-  }
-
-  function pageCatalog() {
-    const f = S.filters;
-    const max = maxSlider();
-    return `
-    <div class="page-title"><p class="eyebrow">${T('Каталог')}</p><h1>${T('Усі підписки')}</h1></div>
-    <div class="catalog">
-      <aside class="filters card" aria-label="${T('Фільтри')}">
-        <div class="field"><label for="f-q">${T('Пошук')}</label><input id="f-q" type="search" data-bind="f-q" value="${esc(f.q)}" placeholder="${T('Назва або опис')}"></div>
-        <div class="field"><label>${T('План')}</label>${planSwitch()}</div>
-        <div class="field"><label>${T('Категорія')}</label><div class="chips">
-          <button class="chip" data-act="f-cat" data-v="all" aria-pressed="${f.cat === 'all'}">${T('Усі')}</button>
-          ${S.data.categories.map((c) => `<button class="chip" data-act="f-cat" data-v="${c.id}" aria-pressed="${f.cat === c.id}">${esc(L(c, 'name'))}</button>`).join('')}</div></div>
-        <div class="field"><label for="f-max">${T('Ціна до:')} <span id="f-max-v" class="num">${f.max == null ? T('без обмеження') : money(f.max)}</span></label>
-          <input id="f-max" type="range" min="0" max="${max}" step="1" value="${f.max == null ? max : Math.min(f.max, max)}" data-bind="f-max"></div>
-        <label class="check"><input type="checkbox" data-bind="f-free" ${f.free ? 'checked' : ''}> ${T('Є безкоштовний план')}</label>
-        <label class="check" style="margin-top:8px"><input type="checkbox" data-bind="f-student" ${f.student ? 'checked' : ''}> ${T('Є студентська знижка')}</label>
-        <label class="check" style="margin:8px 0 12px"><input type="checkbox" data-bind="f-team" ${f.team ? 'checked' : ''}> ${T('Є командний план')}</label>
-        <div class="field"><label for="f-sort">${T('Сортування')}</label><select id="f-sort" data-bind="f-sort">
-          ${[['name', T('За назвою')], ['price-asc', T('Спочатку дешевші')], ['price-desc', T('Спочатку дорожчі')], ['discount', T('Більша студентська знижка')]].map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-        <button class="btn ghost sm" data-act="f-reset">${T('Скинути фільтри')}</button>
-      </aside>
-      <section id="results">${resultsHtml()}</section>
-    </div>`;
-  }
-
-  function filteredServices() {
-    const f = S.filters;
-    const opts = { plan: S.set.plan, seats: 1, useYearly: false };
-    const q = f.q.trim().toLowerCase();
-    const list = S.data.services.filter((s) => {
-      if (f.cat !== 'all' && s.category !== f.cat) return false;
-      if (q && !(s.name + ' ' + L(s, 'desc')).toLowerCase().includes(q)) return false;
-      if (f.free && !s.free) return false;
-      if (f.student && !(s.studentDiscount > 0)) return false;
-      if (f.team && !(s.team && s.team.price != null)) return false;
-      if (f.max != null && priceFor(s, opts).monthly > f.max) return false;
+  function replaceSet(newSet, label) {
+    var count = state.set.items.length;
+    var ask = count ? dialog.confirm(T('Замінити поточний набір?'), T('У вас уже є набір із {n} {w}. Він буде замінений на «{label}».', {n: count, w: serviceWord(count), label: label}), T('Замінити')) : Promise.resolve(true);
+    return ask.then(function (ok) {
+      if (!ok) {
+        return false;
+      }
+      state.set = sanitizeSet(newSet);
+      save();
+      location.hash = '#/builder';
+      toast(T('Набір «{label}» готовий', {label: label}));
       return true;
     });
-    const pm = (s) => priceFor(s, opts).monthly;
-    const sorters = {
-      name: (a, b) => a.name.localeCompare(b.name, I18n.lang()),
-      'price-asc': (a, b) => pm(a) - pm(b),
-      'price-desc': (a, b) => pm(b) - pm(a),
-      discount: (a, b) => (b.studentDiscount || 0) - (a.studentDiscount || 0),
-    };
-    return list.sort(sorters[f.sort] || sorters.name);
   }
 
-  function resultsHtml() {
-    const list = filteredServices();
-    const head = `<p class="muted" style="margin-top:0" role="status" aria-live="polite">${T('Знайдено: {n} з {total}', { n: '<b>' + list.length + '</b>', total: S.data.services.length })}</p>`;
-    if (!list.length) return head + `<div class="card empty"><div class="big">🐾</div><h3>${T('Нічого не знайшлося')}</h3><p>${T('Спробуйте послабити фільтри.')}</p><button class="btn" data-act="f-reset">${T('Скинути фільтри')}</button></div>`;
-    return head + `<div class="grid auto">${list.map(svcCard).join('')}</div>`;
-  }
-
-  function svcCard(s) {
-    const added = inSet(s.id);
-    const cmp = S.compare.includes(s.id);
-    return `<article class="card svc">
-      <div class="head">${mono(s)}<div><h3><a href="#/service/${encodeURIComponent(s.id)}">${esc(s.name)}</a></h3><span class="muted small">${esc(catName(s.category))}</span></div></div>
-      <div class="badges">${badgesOf(s)}</div>
-      <p>${esc(L(s, 'desc'))}</p>
-      <div class="price num">${priceInline(s, S.set.plan, 1)} <small>${planUnit()}</small></div>
-      <div class="actions">
-        <button class="btn sm ${added ? 'on' : 'primary'}" data-act="toggle-set" data-v="${s.id}" aria-pressed="${added}">${added ? T('✓ У наборі') : T('+ До набору')}</button>
-        <button class="btn sm ghost ${cmp ? 'on' : ''}" data-act="toggle-cmp" data-v="${s.id}" aria-pressed="${cmp}">${cmp ? T('✓ Порівнюю') : T('Порівняти')}</button>
-      </div></article>`;
-  }
-
-  /* =====================================================================
-     КАРТКА ПІДПИСКИ
-     ===================================================================== */
-  const SOURCES = {
-    official: ['good', 'Звірено з офіційною сторінкою'],
-    partial: ['', 'Частково звірено з офіційною сторінкою'],
-    unverified: ['warn', 'За сторонніми джерелами, звірте на сайті'],
-    manual: ['', 'Введено адміністратором'],
-  };
-  function sourceBlock(s) {
-    const [cls, label] = SOURCES[s.priceSource] || SOURCES.unverified;
-    const note = L(s, 'priceNote');
-    return `<div class="stack"><p style="margin:0"><span class="tag ${cls}">${T(label)}</span> <span class="muted small">${fmtDate(s.priceDate)}</span></p>
-      ${note ? `<p class="muted small" style="margin:0">${esc(note)}</p>` : ''}
-      <p class="muted small" style="margin:0">${T('Ціни в доларах США, без податків. Актуальні умови — на офіційному сайті.')}</p></div>`;
-  }
-
-  function pageService(id) {
-    const s = svc(id);
-    if (!s) return `<div class="card empty"><div class="big">🐾</div><h1>${T('Підписку не знайдено')}</h1><p><a href="#/catalog">${T('Повернутися до каталогу')}</a></p></div>`;
-    const ind = priceFor(s, { plan: 'individual', useYearly: true });
-    const stu = priceFor(s, { plan: 'student', useYearly: true });
-    const tm = priceFor(s, { plan: 'team', seats: 1, useYearly: true });
-    const added = inSet(s.id);
-    const cmp = S.compare.includes(s.id);
-    const same = S.data.services.filter((x) => x.category === s.category && x.id !== s.id);
-    const hasTeam = s.team && s.team.price != null;
-    return `
-    <p><a href="#/catalog">${T('← До каталогу')}</a></p>
-    <div class="card stack">
-      <div class="row">${mono(s, 'lg')}<div><h1 style="margin:0">${esc(s.name)}</h1><span class="muted">${esc(catName(s.category))}</span></div></div>
-      <div class="badges">${badgesOf(s)}</div>
-      <p>${esc(L(s, 'desc'))}</p>
-      <div class="table-wrap"><table class="price-table">
-        <thead><tr><th>${T('План')}</th><th>${T('На місяць')}</th><th>${T('На рік')}</th><th>${T('Примітка')}</th></tr></thead>
-        <tbody>
-          ${s.free ? `<tr><td>${T('Безкоштовний')}</td><td class="num">${money(0)}</td><td class="num">${money(0)}</td><td>${esc(L(s, 'freeNote') || '')}</td></tr>` : ''}
-          <tr><td>${planLabel('individual')}</td><td class="num">${money(ind.monthly)}</td><td class="num">${money(ind.yearly)}</td><td>${ind.annualTariff ? T('річний тариф дешевший на {x}', { x: money(ind.saveByAnnual) }) : T('річного тарифу немає — 12 × місяць')}</td></tr>
-          <tr><td>${planLabel('student')}</td><td class="num">${money(stu.monthly)}</td><td class="num">${money(stu.yearly)}</td><td>${stu.discount ? T('знижка {n}% (потрібне підтвердження статусу)', { n: stu.discount }) : T('студентської знижки немає')}</td></tr>
-          <tr><td>${planLabel('team')}</td><td class="num">${hasTeam ? money(tm.monthly) : '—'}</td><td class="num">${hasTeam ? money(tm.yearly) : '—'}</td><td>${hasTeam ? T('ціна за одну людину') : T('командного плану немає')}</td></tr>
-        </tbody></table></div>
-      ${sourceBlock(s)}
-      <div class="row">
-        <button class="btn primary" data-act="toggle-set" data-v="${s.id}">${added ? T('Прибрати з набору') : T('+ До набору')}</button>
-        <button class="btn ghost" data-act="toggle-cmp" data-v="${s.id}">${cmp ? T('Прибрати з порівняння') : T('Порівняти')}</button>
-        <a class="btn ghost" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer">${T('Сайт сервісу ↗')}</a>
-      </div>
-    </div>
-    ${same.length ? `<section class="section"><h2>${T('Схожі в категорії «{c}»', { c: esc(catName(s.category)) })}</h2><div class="grid auto">${same.map(svcCard).join('')}</div></section>` : ''}`;
-  }
-
-  /* =====================================================================
-     КОНСТРУКТОР
-     ===================================================================== */
-  function pageBuilder() {
-    return `
-    <div class="page-title"><p class="eyebrow">${T('Конструктор')}</p><h1>${T('Ваш набір')}</h1></div>
-    <div class="builder">
-      <div class="stack">
-        <section class="card" aria-labelledby="h-set"><div class="row between"><h2 id="h-set" style="margin:0">${T('Мій набір')}</h2>
-          <button class="btn ghost sm" data-act="clear-set" ${S.set.items.length ? '' : 'disabled'}>${T('Очистити')}</button></div>
-          <div id="setList">${setListHtml()}</div></section>
-        <section class="card" aria-labelledby="h-add"><h2 id="h-add">${T('Додати сервіс')}</h2>
-          <div class="row"><div style="flex:1;min-width:180px"><input id="ad-q" type="search" aria-label="${T('Пошук сервісу')}" placeholder="${T('Пошук сервісу')}" data-bind="ad-q" value="${esc(S.adder.q)}"></div></div>
-          <div class="chips" style="margin-top:10px">
-            <button class="chip" data-act="ad-cat" data-v="all" aria-pressed="${S.adder.cat === 'all'}">${T('Усі')}</button>
-            ${S.data.categories.map((c) => `<button class="chip" data-act="ad-cat" data-v="${c.id}" aria-pressed="${S.adder.cat === c.id}">${esc(L(c, 'name'))}</button>`).join('')}</div>
-          <div class="adder-list" id="adderList">${adderHtml()}</div></section>
-      </div>
-      <aside class="card calc" id="calcPanel" aria-label="${T('Калькулятор')}">${calcHtml()}</aside>
-    </div>`;
-  }
-
-  function setListHtml() {
-    const t = totals();
-    if (!S.set.items.length) {
-      return `<div class="empty"><div class="big">🐕</div><h3>${T('Набір порожній')}</h3><p>${T('Дайте відповіді на питання майстра або додайте сервіси вручну.')}</p>
-        <div class="row" style="justify-content:center"><a class="btn primary" href="#/">${T('Зібрати за питаннями')}</a><a class="btn ghost" href="#/catalog">${T('Відкрити каталог')}</a></div></div>`;
-    }
-    const dupGroups = new Set(duplicates(S.set.items, S.byId).map((d) => d.group));
-    return t.rows.map((r) => itemRow(r, dupGroups)).join('');
-  }
-
-  const groupName = (g) => {
-    const dict = I18n.lang() === 'en' ? (S.data.groups_en || {}) : {};
-    return dict[g] || (S.data.groups && S.data.groups[g]) || catName(g);
-  };
-
-  function itemRow(r, dupGroups) {
-    const s = r.service, p = r.price, free = r.item.free;
-    const teamMode = S.set.plan === 'team' && !free;
-    const tags = [];
-    if (dupGroups.has(Calc.groupOf(s))) tags.push(`<span class="tag warn" title="${esc(T('У наборі кілька сервісів з однаковою роллю («{g}»). Це лише підказка: переконайтеся, що вони вам обидва потрібні.', { g: groupName(Calc.groupOf(s)) }))}">${T('⚠ дублюється')}</span>`);
-    if (!free) {
-      if (p.discount) tags.push(`<span class="tag good">${T('−{n}% студентська знижка', { n: p.discount })}</span>`);
-      if (p.noStudent) tags.push(`<span class="tag">${T('без студентської знижки')}</span>`);
-      if (p.noTeam) tags.push(`<span class="tag">${T('командного плану немає, окремі акаунти')}</span>`);
-      if (p.minApplied) tags.push(`<span class="tag">${T('мінімум {n} місць', { n: p.minApplied })}</span>`);
-      if (p.seats > 1 && !teamMode) tags.push(`<span class="tag">${T('{n} ос.', { n: p.seats })}</span>`);
-      if (p.annualTariff) tags.push(`<span class="tag good">${T('річний тариф −{x}', { x: money(p.saveByAnnual) })}</span>`);
-    } else {
-      tags.push(`<span class="tag good" title="${esc(L(s, 'freeNote') || '')}">${T('безкоштовний план')}</span>`);
-    }
-    return `<div class="item">
-      ${mono(s)}
-      <div><div class="nm"><a href="#/service/${encodeURIComponent(s.id)}" style="color:inherit">${esc(s.name)}</a> <span class="muted small">${esc(catName(s.category))}</span></div>
-        <div class="meta">${tags.join('')}</div>
-        <div class="ctrl">${teamMode ? `<span class="lic" role="group" aria-label="${esc(T('Ліцензій для {name}', { name: s.name }))}"><button class="btn sm" data-act="qty-dec" data-v="${s.id}" aria-label="${T('Менше ліцензій')}">−</button><span class="lic-n num" aria-live="polite">${p.seats}</span><button class="btn sm" data-act="qty-inc" data-v="${s.id}" aria-label="${T('Більше ліцензій')}">+</button><span class="muted small">${T('ліцензій')}</span></span>` : ''}
-        ${s.free ? `<label class="check small"><input type="checkbox" data-act-change="free" data-v="${s.id}" ${free ? 'checked' : ''}> ${T('Безкоштовний план')}</label>` : ''}
-        <button class="btn sm danger" data-act="remove" data-v="${s.id}" aria-label="${esc(T('Прибрати {name} з набору', { name: s.name }))}">${T('Прибрати')}</button></div></div>
-      <div class="cost num">${money(p.monthly)}<small>${T('/міс')} · ${money(p.yearly)}${T('/рік')}</small></div></div>`;
-  }
-
-  function calcHtml() {
-    const t = totals();
-    const dups = duplicates(S.set.items, S.byId);
-    const ind = totals({ plan: 'individual', seats: 1, useYearly: S.set.yearly });
-    const discSaved = S.set.plan === 'student' ? r2(ind.monthly - t.monthly) : 0;
-    const team = S.set.plan === 'team';
-    return `
-      <h2>${T('Калькулятор')}</h2>
-      <div class="field"><label>${T('План')}</label>${planSwitch()}</div>
-      <label class="check" style="margin-bottom:16px"><input type="checkbox" data-act-change="student" ${S.set.plan === 'student' ? 'checked' : ''}> ${T('Студентська знижка')}</label>
-      ${team ? `<div class="field"><label for="seats">${T('Кількість людей у команді')}</label><div class="stepper">
-        <button class="btn sm" data-act="seats-dec" aria-label="${T('Менше людей')}">−</button>
-        <input id="seats" type="number" min="1" max="500" value="${S.set.seats}" data-act-change="seats">
-        <button class="btn sm" data-act="seats-inc" aria-label="${T('Більше людей')}">+</button></div>
-        <div class="seat-presets" role="group" aria-label="${T('Швидкий вибір кількості людей')}">${[3, 5, 10, 25, 50].map((n) => `<button class="chip" data-act="seats-set" data-v="${n}" aria-pressed="${S.set.seats === n}">${n}</button>`).join('')}</div>
-        <span class="hint">${T('Сервіси без командного плану рахуються як 1 акаунт.')}</span></div>` : ''}
-      <label class="check" style="margin-bottom:16px"><input type="checkbox" data-act-change="yearly" ${S.set.yearly ? 'checked' : ''}> ${T('Річні тарифи (де вони є)')}</label>
-      <div class="total"><span>${T('На місяць')}</span><span class="v num" id="tot-m">${money(t.monthly)}</span></div>
-      <div class="total year"><span>${T('На рік')}</span><span class="v num" id="tot-y">${money(t.yearly)}</span></div>
-      ${team && t.count ? `<p class="small num" style="margin:0 0 8px">${T('На одну людину: {x} на місяць', { x: '<b>' + money(r2(t.monthly / S.set.seats)) + '</b>' })}</p>` : ''}
-      <p class="muted small num">${T('{n} {w} у наборі', { n: t.count, w: serviceWord(t.count) })}</p>
-      ${discSaved > 0 ? `<p class="notice good">${T('Студентська знижка економить {x} на місяць.', { x: money(discSaved) })}</p>` : ''}
-      ${t.saveByAnnual > 0 ? `<p class="notice good">${T('Річні тарифи економлять {x} на рік.', { x: money(t.saveByAnnual) })}</p>` : ''}
-      ${dups.length ? `<p class="notice">${T('⚠ Дублюється:')} ${dups.map((d) => `${esc(groupName(d.group))} (${d.ids.map((i) => esc(svc(i).name)).join(', ')})`).join('; ')}</p>` : ''}
-      <div class="stack" style="margin-top:12px">
-        <button class="btn primary" style="width:100%" data-act="save-set" ${t.count ? '' : 'disabled'}>${S.user ? T('Зберегти набір в акаунті') : T('Увійти й зберегти набір')}</button>
-        <p class="muted small" style="margin:0">${T('Поточний набір автоматично зберігається в цьому браузері.')}</p>
-      </div>`;
-  }
-
-  function adderHtml() {
-    const q = S.adder.q.trim().toLowerCase();
-    const list = S.data.services.filter((s) => !inSet(s.id) && (S.adder.cat === 'all' || s.category === S.adder.cat) && (!q || s.name.toLowerCase().includes(q)));
-    if (!list.length) return `<p class="muted">${T('Нічого додавати — або все вже в наборі, або пошук нічого не знайшов.')}</p>`;
-    return list.map((s) => `<button class="adder" data-act="toggle-set" data-v="${s.id}">${mono(s, 'sm')}<span><b>${esc(s.name)}</b><small class="num">${priceInline(s, S.set.plan, 1)}${S.set.plan === 'team' ? ' ' + T('/ особа') : ''}</small></span><span class="plus" aria-hidden="true">+</span></button>`).join('');
-  }
-
-  function refreshBuilder() {
-    const set = $('#setList'), calc = $('#calcPanel'), add = $('#adderList');
-    if (!set) return render();
-    const focusSel = focusSelector();
-    set.innerHTML = setListHtml();
-    calc.innerHTML = calcHtml();
-    add.innerHTML = adderHtml();
-    const clr = $('[data-act="clear-set"]');
-    if (clr) clr.disabled = !S.set.items.length;
-    restoreFocus(focusSel);
-  }
-
-  /* =====================================================================
-     ПОРІВНЯННЯ
-     ===================================================================== */
-  function pageCompare() {
-    const [a, b] = [svc(S.compare[0]), svc(S.compare[1])];
-    const options = (sel) => `<option value="">${T('— оберіть сервіс —')}</option>` + S.data.services.slice().sort((x, y) => x.name.localeCompare(y.name, I18n.lang())).map((s) => `<option value="${s.id}" ${sel === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
-    const head = `<div class="page-title"><p class="eyebrow">${T('Порівняння')}</p><h1>${T('Порівняйте дві підписки')}</h1></div>
-      <div class="card"><div class="form-grid">
-        <div class="field"><label for="cmp0">${T('Перший сервіс')}</label><select id="cmp0" data-act-change="cmp-sel" data-v="0">${options(S.compare[0])}</select></div>
-        <div class="field"><label for="cmp1">${T('Другий сервіс')}</label><select id="cmp1" data-act-change="cmp-sel" data-v="1">${options(S.compare[1])}</select></div></div>
-        <p class="muted small" style="margin:0">${T('Підказка: у каталозі натисніть «Порівняти» на картках.')}</p></div>`;
-    if (!a || !b) return head + `<div class="card empty" style="margin-top:16px"><div class="big">⚖️</div><h3>${T('Оберіть два сервіси')}</h3><p>${T("Тоді з'явиться таблиця з цінами й перевагами.")}</p></div>`;
-    const P = (s, plan) => priceFor(s, { plan: plan, seats: 1, useYearly: true });
-    const rows = [];
-    const addRow = (label, va, vb, kind) => rows.push({ label, va, vb, kind });
-    const hasTeam = (s) => s.team && s.team.price != null;
-    const freeText = (s) => (s.free ? T('Так') + (L(s, 'freeNote') ? ' — ' + L(s, 'freeNote') : '') : T('Ні'));
-    addRow(T('Категорія'), catName(a.category), catName(b.category));
-    addRow(T('Безкоштовний план'), freeText(a), freeText(b));
-    addRow(T('Індивідуальний, на місяць'), P(a, 'individual').monthly, P(b, 'individual').monthly, 'min');
-    addRow(T('Індивідуальний, на рік'), P(a, 'individual').yearly, P(b, 'individual').yearly, 'min');
-    addRow(T('Студентський, на місяць'), P(a, 'student').monthly, P(b, 'student').monthly, 'min');
-    addRow(T('Студентська знижка'), a.studentDiscount > 0 ? a.studentDiscount + '%' : T('немає'), b.studentDiscount > 0 ? b.studentDiscount + '%' : T('немає'), 'max%');
-    addRow(T('Командний, за людину / міс'), hasTeam(a) ? P(a, 'team').monthly : null, hasTeam(b) ? P(b, 'team').monthly : null, 'min');
-    addRow(T('Економія з річним тарифом'), P(a, 'individual').saveByAnnual, P(b, 'individual').saveByAnnual, 'max');
-    const fmtRow = (r, v) => (typeof v === 'number' ? (r.kind === 'max%' ? v + '%' : money(v)) : v == null ? `<span class="muted">${T('немає плану')}</span>` : esc(v));
-    const body = rows.map((r) => {
-      let ca = '', cb = '';
-      if (r.kind && typeof r.va === 'number' && typeof r.vb === 'number' && r.va !== r.vb) {
-        const aWins = r.kind === 'min' ? r.va < r.vb : r.va > r.vb;
-        if (aWins) ca = 'best'; else cb = 'best';
-      } else if (r.kind === 'min' && typeof r.va === 'number' && r.vb == null) ca = 'best';
-      else if (r.kind === 'min' && typeof r.vb === 'number' && r.va == null) cb = 'best';
-      if (r.kind === 'max%') {
-        const na = a.studentDiscount || 0, nb = b.studentDiscount || 0;
-        if (na !== nb) { if (na > nb) ca = 'best'; else cb = 'best'; }
+  function setSeats(count) {
+    state.set.seats = Math.min(500, Math.max(1, Math.floor(count) || 1));
+    $.each(state.set.items, function (i, item) {
+      var item2 = service(item.id);
+      if (item2 && item2.team && item2.team.price != null) {
+        delete item.qty;
       }
-      return `<tr><th scope="row">${r.label}</th><td class="${ca} num">${fmtRow(r, r.va)}</td><td class="${cb} num">${fmtRow(r, r.vb)}</td></tr>`;
-    }).join('');
-    const ya = P(a, S.set.plan).yearly, yb = P(b, S.set.plan).yearly;
-    const verdict = ya === yb ? T('За поточним планом на рік вони коштують однаково.') :
-      T('За планом «{plan}» на рік дешевше {name} — на {diff}.', { plan: planLabel(S.set.plan), name: '<b>' + esc((ya < yb ? a : b).name) + '</b>', diff: money(Math.abs(ya - yb)) });
-    return head + `<div class="card table-wrap" style="margin-top:16px"><table class="cmp">
-      <thead><tr><th></th><th scope="col"><div class="row">${mono(a, 'sm')}<a href="#/service/${a.id}">${esc(a.name)}</a></div></th><th scope="col"><div class="row">${mono(b, 'sm')}<a href="#/service/${b.id}">${esc(b.name)}</a></div></th></tr></thead>
-      <tbody>${body}
-      <tr><th scope="row">${T('Дії')}</th>${[a, b].map((s) => `<td><div class="row"><button class="btn sm ${inSet(s.id) ? 'on' : 'primary'}" data-act="toggle-set" data-v="${s.id}">${inSet(s.id) ? T('✓ У наборі') : T('+ До набору')}</button><a class="btn sm ghost" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer">${T('Сайт ↗')}</a></div></td>`).join('')}</tr>
-      </tbody></table>
-      <p class="notice good" style="margin-top:16px">${verdict}</p>
-      <p class="muted small" style="margin:8px 0 0">${T('Зелений колір — вигідніше значення в рядку. «Річний» враховує річний тариф, якщо він є.')}</p></div>`;
+    });
+    save();
+    refresh();
   }
 
-  /* =====================================================================
-     АКАУНТ
-     ===================================================================== */
-  function pageAccount() {
-    if (!S.user) {
-      const reg = S.accTab === 'register';
-      const adminHint = Api.mode() === 'server'
-        ? T('Акаунти й набори зберігаються на сервері.') + (isLocalHost() ? ' ' + T('Адмін: {mail}, пароль із запуску сервера (за замовчуванням {pw}).', { mail: '<span class="kbd">admin@subdog.local</span>', pw: '<span class="kbd">admin123</span>' }) : '')
-        : T('Сервер не підключено: дані лежать лише в цьому браузері.') + (isLocalHost() ? ' ' + T('Тестовий адмін: {mail} / {pw}', { mail: '<span class="kbd">admin@subdog.local</span>', pw: '<span class="kbd">admin123</span>' }) : '');
-      return `<div class="page-title"><p class="eyebrow">${T('Акаунт')}</p><h1>${T('Вхід')}</h1></div>
-      <div class="card" style="max-width:460px">
-        <div class="tabs"><button class="chip" data-act="acc-tab" data-v="login" aria-pressed="${!reg}">${T('Вхід')}</button><button class="chip" data-act="acc-tab" data-v="register" aria-pressed="${reg}">${T('Реєстрація')}</button></div>
-        <form data-form="${reg ? 'register' : 'login'}" novalidate>
-          ${reg ? `<div class="field"><label for="a-name">${T("Ім'я")}</label><input id="a-name" name="name" type="text" autocomplete="name" required></div>` : ''}
-          <div class="field"><label for="a-email">${T('Пошта')}</label><input id="a-email" name="email" type="email" autocomplete="email" required></div>
-          <div class="field"><label for="a-pass">${T('Пароль')}</label><input id="a-pass" name="password" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" required><span class="hint">${reg ? T('Щонайменше 6 символів') : ''}</span></div>
-          <p class="form-error" role="alert" hidden></p>
-          <button class="btn primary" style="width:100%">${reg ? T('Створити акаунт') : T('Увійти')}</button>
-        </form>
-        <p class="muted small" style="margin:14px 0 0">${adminHint}</p>
-      </div>`;
-    }
-    return `<div class="page-title"><p class="eyebrow">${T('Акаунт')}</p><div class="row between"><h1>${T('Мої набори')}</h1><div class="row"><span class="muted">${esc(S.user.name)} · ${esc(S.user.email)}${isAdmin() ? ' · ' + T('адмін') : ''}</span><button class="btn ghost sm" data-act="logout">${T('Вийти')}</button></div></div>
-      <div id="savedSets" style="margin-top:20px"><p class="muted">${T('Завантаження…')}</p></div>`;
-  }
-
-  async function fillSaved() {
-    const box = $('#savedSets');
-    if (!box) return;
-    const sets = await Api.listSets();
-    if (!box.isConnected) return;
-    if (!sets.length) { box.innerHTML = `<div class="card empty"><div class="big">📂</div><h3>${T('Збережених наборів ще немає')}</h3><p>${T('Зберіть набір у конструкторі й натисніть «Зберегти набір в акаунті».')}</p><a class="btn primary" href="#/builder">${T('До конструктора')}</a></div>`; return; }
-    box.innerHTML = `<div class="grid auto">${sets.map((r) => {
-      const st = sanitizeSet(r.state);
-      const t = setTotals(st.items, S.byId, { plan: st.plan, seats: st.seats, useYearly: st.yearly });
-      return `<article class="card preset"><div class="row between"><h3 style="margin:0">${esc(r.name)}</h3><span class="tag">${planLabel(st.plan)}</span></div>
-        <div><span class="price num">${money(t.monthly)}</span> <span class="muted">${T('/міс')}</span><div class="muted small num">${T('{y} на рік · {n} {w}', { y: money(t.yearly), n: t.count, w: serviceWord(t.count) })}</div></div>
-        <div class="muted small">${T('Збережено {d}', { d: new Date(r.createdAt).toLocaleDateString(I18n.locale()) })}</div>
-        <div class="row"><button class="btn primary sm" data-act="load-saved" data-v="${r.id}">${T('Відкрити')}</button><button class="btn danger sm" data-act="del-saved" data-v="${r.id}">${T('Видалити')}</button></div></article>`;
-    }).join('')}</div>`;
-  }
-
-  /* =====================================================================
-     АДМІН-ПАНЕЛЬ
-     ===================================================================== */
-  function pageAdmin() {
-    if (!isAdmin()) return `<div class="card empty"><div class="big">🔒</div><h1>${T('Тільки для адміністратора')}</h1><p>${T('Увійдіть як адміністратор, щоб керувати каталогом.')}</p><a class="btn primary" href="#/account">${T('Увійти')}</a></div>`;
-    const list = S.data.services.slice().sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name, I18n.lang()));
-    return `<div class="page-title"><p class="eyebrow">${T('Адміністратор')}</p><h1>${T('Каталог')}</h1></div><div class="row between">
-      <div class="row"><button class="btn primary" data-act="admin-add">${T('+ Додати сервіс')}</button><button class="btn ghost" data-act="admin-export">${T('Експорт JSON')}</button><button class="btn ghost" data-act="admin-reset" ${S.data.customized ? '' : 'disabled'}>${T('Скинути до початкового')}</button></div></div>
-      <p class="muted">${T('Каталог: {n} сервісів.', { n: '<b>' + list.length + '</b>' })} ${S.data.customized ? T('Показано змінену версію (зберігається в цьому браузері).') : T('Показано початкову версію з catalog.json.')}</p>
-      <div class="card table-wrap"><table><thead><tr><th>${T('Сервіс')}</th><th>${T('Категорія')}</th><th>${T('Ціна/міс')}</th><th>${T('Річний')}</th><th>${T('Студ.')}</th><th>${T('Команда')}</th><th>Free</th><th>${T('Ціни від')}</th><th></th></tr></thead><tbody>
-      ${list.map((s) => `<tr><td><b>${esc(s.name)}</b></td><td>${esc(catName(s.category))}</td><td class="num">${money(s.price)}</td><td class="num">${s.yearlyPrice != null ? money(s.yearlyPrice) : '—'}</td><td>${s.studentDiscount ? s.studentDiscount + '%' : '—'}</td><td class="num">${s.team && s.team.price != null ? money(s.team.price) : '—'}</td><td>${s.free ? T('так') : '—'}</td><td>${fmtDate(s.priceDate)}</td>
-      <td><div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-act="admin-edit" data-v="${s.id}">${T('Змінити')}</button><button class="btn sm danger" data-act="admin-del" data-v="${s.id}" aria-label="${esc(T('Видалити {name}', { name: s.name }))}">${T('Видалити')}</button></div></td></tr>`).join('')}
-      </tbody></table></div>`;
-  }
-
-  function serviceForm(s) {
-    const v = s || { name: '', category: S.data.categories[0].id, desc: '', url: 'https://', price: '', yearlyPrice: '', studentDiscount: 0, free: false, freeNote: '', team: null };
-    const tp = v.team && v.team.price != null ? v.team.price : '';
-    const ty = v.team && v.team.yearlyPrice != null ? v.team.yearlyPrice : '';
-    return `
-      <div class="field"><label for="s-name">${T('Назва')}</label><input id="s-name" name="name" type="text" value="${esc(v.name)}"></div>
-      <div class="form-grid">
-        <div class="field"><label for="s-cat">${T('Категорія')}</label><select id="s-cat" name="category">${S.data.categories.map((c) => `<option value="${c.id}" ${v.category === c.id ? 'selected' : ''}>${esc(L(c, 'name'))}</option>`).join('')}</select></div>
-        <div class="field"><label for="s-url">${T('Посилання')}</label><input id="s-url" name="url" type="url" value="${esc(v.url)}"></div></div>
-      <div class="field"><label for="s-desc">${T('Опис')}</label><textarea id="s-desc" name="desc">${esc(v.desc)}</textarea></div>
-      <div class="field"><label for="s-desc-en">${T('Опис (англійською)')}</label><textarea id="s-desc-en" name="desc_en">${esc(v.desc_en || '')}</textarea><span class="hint">${T('Порожньо — буде показано український опис')}</span></div>
-      <div class="form-grid">
-        <div class="field"><label for="s-price">${T('Ціна, $/міс')}</label><input id="s-price" name="price" type="number" min="0" step="any" value="${esc(v.price)}"></div>
-        <div class="field"><label for="s-year">${T('Річний тариф, $/рік')}</label><input id="s-year" name="yearlyPrice" type="number" min="0" step="any" value="${esc(v.yearlyPrice == null ? '' : v.yearlyPrice)}"><span class="hint">${T('Порожньо — немає')}</span></div>
-        <div class="field"><label for="s-disc">${T('Студентська знижка, %')}</label><input id="s-disc" name="studentDiscount" type="number" min="0" max="100" step="any" value="${esc(v.studentDiscount || 0)}"></div>
-        <div class="field"><label for="s-team">${T('Командний, $/міс за людину')}</label><input id="s-team" name="teamPrice" type="number" min="0" step="any" value="${esc(tp)}"><span class="hint">${T('Порожньо — немає командного плану')}</span></div>
-        <div class="field"><label for="s-teamy">${T('Командний, $/рік за людину')}</label><input id="s-teamy" name="teamYearly" type="number" min="0" step="any" value="${esc(ty)}"></div></div>
-      <div class="form-grid">
-        <div class="field"><label for="s-min">${T('Мінімум місць у командному плані')}</label><input id="s-min" name="minSeats" type="number" min="1" step="1" value="${esc(v.team && v.team.minSeats ? v.team.minSeats : '')}"><span class="hint">${T('Порожньо — без мінімуму')}</span></div>
-        <div class="field"><label for="s-group">${T('Група для підказки «дублюється»')}</label><select id="s-group" name="group"><option value="">${T('За категорією')}</option>${Object.keys(S.data.groups || {}).map((g) => `<option value="${esc(g)}" ${v.group === g ? 'selected' : ''}>${esc(groupName(g))}</option>`).join('')}</select></div></div>
-      <label class="check"><input type="checkbox" name="free" ${v.free ? 'checked' : ''}> ${T('Є безкоштовний план')}</label>
-      <div class="field" style="margin-top:8px"><label for="s-fn">${T('Що входить у безкоштовний план')}</label><input id="s-fn" name="freeNote" type="text" value="${esc(v.freeNote || '')}"></div>
-      <div class="field"><label for="s-src">${T('Джерело ціни')}</label><select id="s-src" name="priceSource">${Object.keys(SOURCES).map((k) => `<option value="${k}" ${(v.priceSource || 'manual') === k ? 'selected' : ''}>${esc(T(SOURCES[k][1]))}</option>`).join('')}</select></div>
-      <div class="field"><label for="s-note">${T('Примітка до ціни')}</label><textarea id="s-note" name="priceNote">${esc(v.priceNote || '')}</textarea><span class="hint">${T('Що саме перевірено: умови, акції, обмеження')}</span></div>
-      <div class="field"><label for="s-note-en">${T('Примітка до ціни (англійською)')}</label><textarea id="s-note-en" name="priceNote_en">${esc(v.priceNote_en || '')}</textarea></div>`;
-  }
-
-  function validateService(fd) {
-    if (!String(fd.name || '').trim()) return T('Вкажіть назву.');
-    if (!/^https?:\/\//i.test(fd.url || '')) return T('Посилання має починатися з http:// або https://');
-    if (fd.price === '' || !(Number(fd.price) >= 0)) return T('Вкажіть ціну (число від 0).');
-    const d = Number(fd.studentDiscount || 0);
-    if (!(d >= 0 && d <= 100)) return T('Знижка має бути від 0 до 100%.');
-    if (fd.yearlyPrice !== '' && !(Number(fd.yearlyPrice) >= 0)) return T('Річний тариф має бути числом від 0.');
-    if (fd.teamPrice !== '' && !(Number(fd.teamPrice) >= 0)) return T('Командна ціна має бути числом від 0.');
-    if (fd.minSeats !== '' && !(Number(fd.minSeats) >= 1)) return T('Мінімум місць має бути числом від 1.');
-    if (fd.yearlyPrice !== '' && Number(fd.yearlyPrice) > Number(fd.price) * 12 + 0.005) return T('Річний тариф не може бути дорожчим за 12 місяців.');
-    return '';
-  }
-
-  function slug(name) {
-    const map = { а: 'a', б: 'b', в: 'v', г: 'h', ґ: 'g', д: 'd', е: 'e', є: 'ie', ж: 'zh', з: 'z', и: 'y', і: 'i', ї: 'i', й: 'i', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ь: '', ю: 'iu', я: 'ia' };
-    const s = name.toLowerCase().split('').map((c) => (map[c] !== undefined ? map[c] : c)).join('').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    return s || 'svc';
-  }
-
-  function formToService(fd, old) {
-    const n = (x) => (x === '' || x == null ? null : Number(x));
-    let id = old ? old.id : slug(fd.name);
-    if (!old) { let base = id, i = 2; while (S.byId[id]) id = base + '-' + i++; }
-    const svcOut = {
-      id: id, name: fd.name.trim(), category: fd.category, desc: (fd.desc || '').trim(), url: fd.url.trim(),
-      price: Number(fd.price), yearlyPrice: n(fd.yearlyPrice), studentDiscount: Number(fd.studentDiscount || 0),
-      free: !!fd.free, freeNote: (fd.freeNote || '').trim(),
-      team: fd.teamPrice === '' ? null : { price: Number(fd.teamPrice), yearlyPrice: n(fd.teamYearly) },
-      priceDate: new Date().toISOString().slice(0, 10),
-      priceSource: SOURCES[fd.priceSource] ? fd.priceSource : 'manual',
-      priceNote: (fd.priceNote || '').trim(),
-    };
-    // англійські тексти: з форми, а те, чого в формі немає (freeNote_en), лишаємо як було
-    if ((fd.desc_en || '').trim()) svcOut.desc_en = fd.desc_en.trim();
-    if ((fd.priceNote_en || '').trim()) svcOut.priceNote_en = fd.priceNote_en.trim();
-    if (old && old.freeNote_en && svcOut.freeNote === old.freeNote) svcOut.freeNote_en = old.freeNote_en;
-    if (svcOut.team && fd.minSeats !== '') svcOut.team.minSeats = Math.floor(Number(fd.minSeats));
-    if (fd.group) svcOut.group = fd.group;
-    // Змінили ціни, але не торкнулись джерела — це вже не «звірено», а введено вручну
-    const norm = (x) => (x === '' || x == null ? '' : String(Number(x)));
-    if (old && fd.priceSource === old.priceSource && ['price', 'yearlyPrice', 'studentDiscount'].some((k) => norm(old[k]) !== norm(fd[k]))) {
-      svcOut.priceSource = 'manual';
-    }
-    return svcOut;
-  }
-
-  /* Зміна каталогу адміном: помилки сервера (немає прав, сесія закінчилась) показуємо повідомленням */
-  async function adminOp(fn, okMsg) {
-    try { await fn(); await reloadCatalog(); render(); toast(okMsg); }
-    catch (e) { toast(e.message || T('Не вдалося зберегти')); }
-  }
-
-  async function reloadCatalog() {
-    S.data = await Api.getCatalog();
-    indexCatalog();
-    S.set = sanitizeSet(S.set);
-    S.compare = S.compare.filter((id) => S.byId[id]).slice(0, 2);
-    persist();
-  }
-
-  /* =====================================================================
-     ДІЇ
-     ===================================================================== */
-  function toggleInSet(id) {
-    if (inSet(id)) { S.set.items = S.set.items.filter((i) => i.id !== id); toast(T('Прибрано з набору')); }
-    else { S.set.items.push({ id: id, free: false }); toast(T('Додано до набору')); }
-    persist();
-  }
-  function rerenderLight() {
-    const { name } = currentRoute();
-    if (name === 'builder') refreshBuilder();
-    else if (name === 'catalog') { const r = $('#results'); if (r) { const sel = focusSelector(); r.innerHTML = resultsHtml(); restoreFocus(sel); } }
-    else render();
-  }
-  async function replaceSet(newSet, label) {
-    if (S.set.items.length && !(await confirmDialog(T('Замінити поточний набір?'), T('У вас уже є набір із {n} {w}. Він буде замінений на «{label}».', { n: S.set.items.length, w: serviceWord(S.set.items.length), label: label }), T('Замінити')))) return false;
-    S.set = sanitizeSet(newSet);
-    persist();
-    location.hash = '#/builder';
-    toast(T('Набір «{label}» готовий', { label: label }));
-    return true;
-  }
-
-  /* Загальна кількість людей у команді. Індивідуальні ліцензії сервісів із командним планом скидаємо,
-     щоб вони йшли за загальною кількістю; для сервісів без командного плану вибір користувача лишається. */
-  function setSeats(n) {
-    S.set.seats = Math.min(500, Math.max(1, Math.floor(n) || 1));
-    S.set.items.forEach((it) => { const s = svc(it.id); if (s && s.team && s.team.price != null) delete it.qty; });
-    persist();
-    refreshBuilder();
-  }
-  /* Ліцензії для окремого сервісу (±1 від того, що зараз показано) */
   function setQty(id, delta) {
-    const row = totals().rows.find((r) => r.item.id === id);
-    if (!row) return;
-    row.item.qty = Math.min(500, Math.max(1, row.price.seats + delta));
-    persist();
-    refreshBuilder();
-  }
-
-  const clicks = {
-    lang: () => { I18n.setLang(I18n.lang() === 'uk' ? 'en' : 'uk'); applyStatic(); render(); },
-    'toggle-set': (el) => { toggleInSet(el.dataset.v); rerenderLight(); },
-    remove: (el) => { S.set.items = S.set.items.filter((i) => i.id !== el.dataset.v); persist(); refreshBuilder(); },
-    plan: (el) => { S.set.plan = el.dataset.v; persist(); const { name } = currentRoute(); if (name === 'catalog') render(); else rerenderLight(); },
-    'clear-set': async () => { if (await confirmDialog(T('Очистити набір?'), T('Усі сервіси буде прибрано з набору.'), T('Очистити'), true)) { S.set.items = []; persist(); refreshBuilder(); } },
-    'seats-inc': () => setSeats(S.set.seats + 1),
-    'seats-set': (el) => setSeats(Number(el.dataset.v)),
-    'seats-dec': () => setSeats(S.set.seats - 1),
-    'qty-inc': (el) => setQty(el.dataset.v, +1),
-    'qty-dec': (el) => setQty(el.dataset.v, -1),
-    'toggle-cmp': (el) => {
-      const id = el.dataset.v;
-      if (S.compare.includes(id)) S.compare = S.compare.filter((x) => x !== id);
-      else { S.compare.push(id); if (S.compare.length > 2) S.compare.shift(); if (S.compare.length === 2) toast(T('Готово — відкрийте «Порівняння»')); }
-      persist();
-      const { name } = currentRoute();
-      if (name === 'service' || name === 'compare') render(); else rerenderLight();
-    },
-    'ad-cat': (el) => { S.adder.cat = el.dataset.v; render(); },
-    'f-cat': (el) => { S.filters.cat = el.dataset.v; render(); },
-    'goto-cat': (el) => { S.filters = { q: '', cat: el.dataset.v, max: null, free: false, student: false, team: false, sort: 'name' }; },
-    'f-reset': () => { S.filters = { q: '', cat: 'all', max: null, free: false, student: false, team: false, sort: 'name' }; render(); },
-    'wiz-mode': (el) => { S.wiz = { step: 2, mode: el.dataset.v, role: null, sphere: null }; $('#wizard').innerHTML = wizardHtml(); },
-    'wiz-role': (el) => { S.wiz.role = el.dataset.v; S.wiz.step = 3; $('#wizard').innerHTML = wizardHtml(); },
-    'wiz-sphere': (el) => { S.wiz.sphere = el.dataset.v; $('#wizard').innerHTML = wizardHtml(); },
-    'wiz-back': () => { S.wiz.step = Math.max(1, S.wiz.step - 1); $('#wizard').innerHTML = wizardHtml(); },
-    'wiz-go': () => {
-      const rec = recommend(S.data.wizard, S.data.services, S.wiz);
-      replaceSet({ items: rec.items, plan: rec.plan, seats: rec.seats, yearly: true }, T('За вашими відповідями'));
-    },
-    'apply-preset': (el) => {
-      const p = S.data.presets.find((x) => x.id === el.dataset.v);
-      replaceSet({ items: p.items.map((i) => ({ id: i.id, free: !!i.free })), plan: p.plan, seats: p.seats || 3, yearly: true }, L(p, 'name'));
-    },
-    'save-set': async () => {
-      if (!S.user) { toast(T('Спочатку увійдіть в акаунт')); S.accTab = 'login'; location.hash = '#/account'; return; }
-      const fd = await formDialog({ title: T('Зберегти набір'), ok: T('Зберегти'),
-        body: `<div class="field"><label for="n-name">${T('Назва набору')}</label><input id="n-name" name="name" type="text" maxlength="60" value="${esc(T('Мій набір'))}"></div>`,
-        validate: (d) => (String(d.name || '').trim() ? '' : T('Вкажіть назву набору.')) });
-      if (!fd) return;
-      try { await Api.saveUserSet(fd.name.trim(), S.set); toast(T('Набір збережено в акаунті')); } catch (e) { toast(e.message); }
-    },
-    'load-saved': async (el) => {
-      const rec = (await Api.listSets()).find((r) => r.id === el.dataset.v);
-      if (rec) await replaceSet(rec.state, rec.name);
-    },
-    'del-saved': async (el) => {
-      if (!(await confirmDialog(T('Видалити набір?'), T('Цю дію не можна скасувати.'), T('Видалити'), true))) return;
-      await Api.deleteUserSet(el.dataset.v); toast(T('Набір видалено')); fillSaved();
-    },
-    'acc-tab': (el) => { S.accTab = el.dataset.v; render(); },
-    logout: async () => { await Api.logout(); S.user = null; toast(T('Ви вийшли з акаунта')); render(); },
-    'admin-add': async () => {
-      const fd = await formDialog({ title: T('Новий сервіс'), body: serviceForm(null), validate: validateService });
-      if (!fd) return;
-      adminOp(() => Api.saveServices(S.data.services.concat([formToService(fd, null)])), T('Сервіс додано'));
-    },
-    'admin-edit': async (el) => {
-      const old = svc(el.dataset.v);
-      const fd = await formDialog({ title: T('Змінити: {name}', { name: old.name }), body: serviceForm(old), validate: validateService });
-      if (!fd) return;
-      const upd = formToService(fd, old);
-      adminOp(() => Api.saveServices(S.data.services.map((s) => (s.id === old.id ? upd : s))), T('Зміни збережено'));
-    },
-    'admin-del': async (el) => {
-      const s = svc(el.dataset.v);
-      if (!(await confirmDialog(T('Видалити сервіс?'), T('«{name}» зникне з каталогу та з усіх наборів. Це можна скасувати лише кнопкою «Скинути до початкового».', { name: s.name }), T('Видалити'), true))) return;
-      adminOp(() => Api.saveServices(S.data.services.filter((x) => x.id !== s.id)), T('Сервіс видалено'));
-    },
-    'admin-reset': async () => {
-      if (!(await confirmDialog(T('Скинути каталог?'), Api.mode() === 'server' ? T('Усі правки каталогу на сервері буде втрачено для всіх користувачів.') : T('Усі зміни каталогу в цьому браузері буде втрачено.'), T('Скинути'), true))) return;
-      adminOp(() => Api.resetCatalog(), T('Каталог скинуто'));
-    },
-    'admin-export': () => {
-      const blob = new Blob([JSON.stringify({ services: S.data.services }, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = 'subdog-services.json'; a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    },
-  };
-
-  const changes = {
-    free: (el) => { const it = S.set.items.find((i) => i.id === el.dataset.v); if (it) it.free = el.checked; persist(); refreshBuilder(); },
-    student: (el) => { S.set.plan = el.checked ? 'student' : 'individual'; persist(); refreshBuilder(); },
-    yearly: (el) => { S.set.yearly = el.checked; persist(); refreshBuilder(); },
-    seats: (el) => setSeats(Number(el.value) || 1),
-    'cmp-sel': (el) => {
-      const i = Number(el.dataset.v);
-      const arr = [S.compare[0] || '', S.compare[1] || ''];
-      arr[i] = el.value;
-      if (arr[0] && arr[0] === arr[1]) { toast(T('Оберіть два різні сервіси')); arr[i] = ''; }
-      S.compare = arr.filter(Boolean);
-      persist(); render();
-    },
-  };
-
-  const binds = {
-    'f-q': (el) => { S.filters.q = el.value; $('#results').innerHTML = resultsHtml(); },
-    'f-max': (el) => { const max = maxSlider(); S.filters.max = Number(el.value) >= max ? null : Number(el.value); $('#f-max-v').textContent = S.filters.max == null ? T('без обмеження') : money(S.filters.max); $('#results').innerHTML = resultsHtml(); },
-    'f-free': (el) => { S.filters.free = el.checked; $('#results').innerHTML = resultsHtml(); },
-    'f-student': (el) => { S.filters.student = el.checked; $('#results').innerHTML = resultsHtml(); },
-    'f-team': (el) => { S.filters.team = el.checked; $('#results').innerHTML = resultsHtml(); },
-    'f-sort': (el) => { S.filters.sort = el.value; $('#results').innerHTML = resultsHtml(); },
-    'ad-q': (el) => { S.adder.q = el.value; $('#adderList').innerHTML = adderHtml(); },
-  };
-
-  document.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-act]');
-    if (el && clicks[el.dataset.act]) clicks[el.dataset.act](el, e);
-  });
-  document.addEventListener('change', (e) => {
-    const el = e.target.closest('[data-act-change]');
-    if (el && changes[el.dataset.actChange]) return changes[el.dataset.actChange](el);
-    const b = e.target.closest('[data-bind]');
-    if (b && b.type !== 'search' && b.type !== 'range' && binds[b.dataset.bind]) binds[b.dataset.bind](b);
-  });
-  document.addEventListener('input', (e) => {
-    const b = e.target.closest('[data-bind]');
-    if (b && (b.type === 'search' || b.type === 'range') && binds[b.dataset.bind]) binds[b.dataset.bind](b);
-  });
-  document.addEventListener('submit', async (e) => {
-    const form = e.target.closest('[data-form]');
-    if (!form) return;
-    e.preventDefault();
-    const fd = {};
-    new FormData(form).forEach((v, k) => { fd[k] = v; });
-    try {
-      S.user = await (form.dataset.form === 'register' ? Api.register(fd) : Api.login(fd));
-      toast(T('Вітаємо, {name}!', { name: S.user.name }));
-      render();
-    } catch (err) {
-      const p = $('.form-error', form); p.textContent = err.message; p.hidden = false;
+    var row = null;
+    $.each(totals().rows, function (i, item) {
+      if (item.item.id === id) {
+        row = item;
+      }
+    });
+    if (row) {
+      row.item.qty = Math.min(500, Math.max(1, row.price.seats + delta));
+      save();
+      refresh();
     }
-  });
-
-  window.addEventListener('hashchange', () => { setMenu(false); render(); });
-
-  /* Мобільне меню */
-  function setMenuLabel() {
-    const open = $('#menuBtn').getAttribute('aria-expanded') === 'true';
-    $('#menuBtn').textContent = open ? T('Закрити') : T('Меню');
   }
-  function setMenu(open) {
-    $('#siteHeader').classList.toggle('open', open);
-    $('#menuBtn').setAttribute('aria-expanded', String(open));
-    setMenuLabel();
+
+  function Dialog(elem) {
+    this.elem = elem;
   }
-  $('#menuBtn').addEventListener('click', () => setMenu($('#menuBtn').getAttribute('aria-expanded') !== 'true'));
-  $('#langBtn').addEventListener('click', () => clicks.lang());
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setMenu(false); });
 
-  /* «Прожектор» за курсором на скляних картках: передаємо позицію в CSS-змінні */
-  document.addEventListener('pointermove', (e) => {
-    const card = e.target.closest && e.target.closest('.card');
-    if (!card) return;
-    const r = card.getBoundingClientRect();
-    card.style.setProperty('--mx', (e.clientX - r.left) + 'px');
-    card.style.setProperty('--my', (e.clientY - r.top) + 'px');
-  }, { passive: true });
+  Dialog.prototype.open = function (options) {
+    var elem = this.elem;
+    return new Promise(function (resolve) {
+      var done = false;
+      var form;
+      function finish(value) {
+        if (done) {
+          return;
+        }
+        done = true;
+        elem.off('.dialog');
+        if (elem[0].open) {
+          elem[0].close();
+        }
+        resolve(value);
+      }
+      elem.html('<form novalidate><h2>' + esc(options.title) + '</h2>' + (options.body || '') +
+        '<p class="error dialog__error" role="alert" hidden></p>' +
+        '<div class="dialog__actions"><button class="dialog__cancel button button_type_ghost" type="button">' + esc(options.cancel || T('Скасувати')) + '</button>' +
+        '<button class="button ' + (options.danger ? 'button_type_danger' : 'button_type_primary') + '">' + esc(options.ok || T('Зберегти')) + '</button></div></form>');
+      form = elem.find('form');
+      form.on('submit', function (e) {
+        var values = {};
+        var message;
+        e.preventDefault();
+        $.each(form.serializeArray(), function (i, field) {
+          values[field.name] = field.value;
+        });
+        message = options.validate ? options.validate(values) : '';
+        if (message) {
+          elem.find('.dialog__error').text(message).prop('hidden', false);
+          return;
+        }
+        finish(values);
+      });
+      elem.find('.dialog__cancel').on('click', function () {
+        finish(null);
+      });
+      elem.on('close.dialog', function () {
+        finish(null);
+      });
+      elem[0].showModal();
+      elem.find('input, select, textarea').first().focus();
+    });
+  };
 
-  /* ---------- старт ---------- */
-  async function init() {
-    applyStatic();
-    try {
-      S.data = await Api.getCatalog();
-    } catch (err) {
-      $('#app').innerHTML = `<div class="wrap"><div class="card empty"><div class="big">🐾</div><h1>${T('Не вдалося завантажити каталог')}</h1><p>${esc(err.message)}</p></div></div>`;
+  Dialog.prototype.confirm = function (title, text, ok, danger) {
+    return this.open({title: title, body: '<p>' + esc(text) + '</p>', ok: ok || T('Так'), danger: danger}).then(function (values) {
+      return !!values;
+    });
+  };
+
+  function Header(elem) {
+    var that = this;
+    this.elem = elem;
+    this.eNav = elem.find('.header__nav');
+    this.eMenu = elem.find('.header__menu');
+    this.eLang = elem.find('.header__lang');
+    this.eMenu.on('click', function () {
+      that.toggle(!elem.hasClass('header_open_yes'));
+    });
+    this.eLang.on('click', function () {
+      I18n.setLang(I18n.lang() === 'uk' ? 'en' : 'uk');
+      translateStatic();
+      refresh();
+    });
+    $(document).on('keydown', function (e) {
+      if (e.key === 'Escape') {
+        that.toggle(false);
+      }
+    });
+  }
+
+  Header.prototype.toggle = function (open) {
+    this.elem.toggleClass('header_open_yes', open);
+    this.eMenu.attr('aria-expanded', String(open));
+    this.renderLabels();
+  };
+
+  Header.prototype.renderLabels = function () {
+    var lang = I18n.lang();
+    this.eMenu.text(this.elem.hasClass('header_open_yes') ? T('Закрити') : T('Меню'));
+    this.eLang
+      .text(lang === 'uk' ? 'EN' : 'UA')
+      .attr('aria-label', lang === 'uk' ? 'Switch to English' : 'Перемкнути на українську')
+      .attr('title', lang === 'uk' ? 'English' : 'Українська');
+  };
+
+  Header.prototype.render = function () {
+    var links = [
+      ['', T('Головна'), ''],
+      ['catalog', T('Каталог'), ''],
+      ['builder', T('Конструктор'), state.set.items.length || ''],
+      ['compare', T('Порівняння'), state.compare.length || ''],
+      ['account', state.user ? T('Мої набори') : T('Вхід'), '']
+    ];
+    var html = '';
+    if (isAdmin()) {
+      links.push(['admin', T('Адмін'), '']);
+    }
+    $.each(links, function (i, link) {
+      var active = route.name === link[0] || (link[0] === 'catalog' && route.name === 'service');
+      html += '<a class="header__link' + (active ? ' header__link_active_yes' : '') + '" href="#/' + link[0] + '"' + (active ? ' aria-current="page"' : '') + '>' +
+        link[1] + (link[2] !== '' ? '<span class="header__count">' + link[2] + '</span>' : '') + '</a>';
+    });
+    this.eNav.html(html);
+  };
+
+  function Wizard(elem) {
+    var that = this;
+    this.elem = elem;
+    elem.on('click', '.choice', function () {
+      that.choose($(this).attr('data-kind'), $(this).attr('data-id'));
+    });
+    elem.on('click', '.wizard__back', function () {
+      state.wizard.step = Math.max(1, state.wizard.step - 1);
+      that.render();
+    });
+    elem.on('click', '.wizard__go', function () {
+      var rec = Calc.recommend(state.data.wizard, state.data.services, state.wizard);
+      replaceSet({items: rec.items, plan: rec.plan, seats: rec.seats, yearly: true}, T('За вашими відповідями'));
+    });
+  }
+
+  Wizard.prototype.choose = function (kind, id) {
+    if (kind === 'mode') {
+      state.wizard = {step: 2, mode: id, role: null, sphere: null};
+    } else if (kind === 'role') {
+      state.wizard.role = id;
+      state.wizard.step = 3;
+    } else {
+      state.wizard.sphere = id;
+    }
+    this.render();
+  };
+
+  Wizard.prototype.choice = function (kind, item, selected, icon) {
+    return '<button class="choice' + (selected ? ' choice_selected_yes' : '') + '" type="button" data-kind="' + kind + '" data-id="' + item.id + '" aria-pressed="' + selected + '">' +
+      (icon ? '<span class="choice__icon" aria-hidden="true">' + icon + '</span>' : '') +
+      '<span><span class="choice__title">' + esc(L(item, 'title')) + '</span>' +
+      (item.text ? '<span class="choice__text">' + esc(L(item, 'text')) + '</span>' : '') + '</span></button>';
+  };
+
+  Wizard.prototype.render = function () {
+    var that = this;
+    var wizard = state.wizard;
+    var data = state.data.wizard;
+    var html = '<div class="wizard__steps" aria-hidden="true">';
+    var mode = null;
+    var role = null;
+    var picked = '';
+    $.each(data.modes, function (i, item) {
+      if (item.id === wizard.mode) {
+        mode = item;
+      }
+    });
+    $.each(data.roles, function (i, item) {
+      if (item.id === wizard.role) {
+        role = item;
+      }
+    });
+    $.each([1, 2, 3], function (i, step) {
+      html += '<span class="wizard__step' + (wizard.step >= step ? ' wizard__step_done_yes' : '') + '"></span>';
+    });
+    html += '</div>';
+    if (mode) {
+      picked += '<span class="tag tag_type_accent">' + esc(L(mode, 'title')) + '</span>';
+    }
+    if (role) {
+      picked += '<span class="tag tag_type_accent">' + esc(L(role, 'title')) + '</span>';
+    }
+    if (wizard.step === 1) {
+      html += '<h2>' + T('Для чого потрібен набір?') + '</h2>';
+      $.each(data.modes, function (i, item) {
+        html += that.choice('mode', item, wizard.mode === item.id, item.icon);
+      });
+    } else if (wizard.step === 2) {
+      html += '<h2>' + T('Хто ви?') + '</h2><div class="wizard__picked">' + picked + '</div>';
+      $.each(data.roles, function (i, item) {
+        if (item.mode === wizard.mode) {
+          html += that.choice('role', item, wizard.role === item.id);
+        }
+      });
+      html += '<div class="wizard__actions"><button class="wizard__back button button_size_small button_type_ghost" type="button">' + T('← Назад') + '</button></div>';
+    } else {
+      html += '<h2>' + T('Яка ваша сфера?') + '</h2><div class="wizard__picked">' + picked + '</div>';
+      $.each(data.spheres, function (i, item) {
+        html += that.choice('sphere', item, wizard.sphere === item.id, item.icon);
+      });
+      html += '<div class="wizard__actions"><button class="wizard__back button button_size_small button_type_ghost" type="button">' + T('← Назад') + '</button>' +
+        '<button class="wizard__go button button_type_primary" type="button"' + (wizard.sphere ? '' : ' disabled') + '>' + T('Зібрати набір') + '</button></div>';
+    }
+    this.elem.html(html);
+  };
+
+  function Home(elem) {
+    this.elem = elem;
+    this.eCount = elem.find('.hero__count');
+    this.eServices = elem.find('.hero__services');
+    this.ePresets = elem.find('.presets');
+    this.eCats = elem.find('.cats');
+    this.wizard = new Wizard(elem.find('.wizard'));
+    elem.find('.business__button').on('click', function () {
+      Home.prototype.take('own-business');
+    });
+    this.ePresets.on('click', '.preset__take', function () {
+      Home.prototype.take($(this).attr('data-id'));
+    });
+    this.eCats.on('click', '.cats__item', function () {
+      state.filters = newFilters($(this).attr('data-id'));
+    });
+  }
+
+  Home.prototype.take = function (id) {
+    var found = null;
+    $.each(state.data.presets, function (i, item) {
+      if (item.id === id) {
+        found = item;
+      }
+    });
+    if (found) {
+      replaceSet({
+        items: $.map(found.items, function (item) {
+          return {id: item.id, free: !!item.free};
+        }),
+        plan: found.plan,
+        seats: found.seats || 3,
+        yearly: true
+      }, L(found, 'name'));
+    }
+  };
+
+  Home.prototype.render = function () {
+    var presets = '';
+    var cats = '';
+    this.eCount.text(state.set.items.length ? ' (' + state.set.items.length + ')' : '');
+    this.eServices.text(T('{n} сервісів у {c} категоріях', {n: state.data.services.length, c: state.data.categories.length}));
+    $.each(state.data.presets, function (i, preset) {
+      var items = $.grep(preset.items, function (item) {
+        return service(item.id);
+      });
+      var sum = Calc.setTotals(items, state.byId, {plan: preset.plan, seats: preset.seats || 3, useYearly: true});
+      presets += '<article class="card preset">' +
+        '<div class="preset__top"><h3>' + esc(L(preset, 'name')) + '</h3><span class="tag">' + planLabel(preset.plan) + (preset.plan === 'team' ? ', ' + T('{n} ос.', {n: preset.seats || 3}) : '') + '</span></div>' +
+        '<p class="muted small">' + esc(L(preset, 'tagline')) + '</p>' +
+        '<div><span class="preset__price num">' + money(sum.monthly) + '</span> <span class="muted">' + T('/міс') + '</span>' +
+        '<div class="muted small num">' + T('{y} на рік · {n} {w}', {y: money(sum.yearly), n: sum.count, w: serviceWord(sum.count)}) + '</div></div>' +
+        '<button class="preset__take button button_type_primary" type="button" data-id="' + preset.id + '">' + T('Взяти цей набір') + '</button></article>';
+    });
+    $.each(state.data.categories, function (i, item) {
+      var names = $.map($.grep(state.data.services, function (s) {
+        return s.category === item.id;
+      }), function (s) {
+        return esc(s.name);
+      });
+      cats += '<a class="cats__item" href="#/catalog" data-id="' + item.id + '"><span class="cats__name">' + esc(L(item, 'name')) + '</span><span class="muted small">' + names.join(', ') + '</span></a>';
+    });
+    this.ePresets.html(presets);
+    this.eCats.html(cats);
+    this.wizard.render();
+  };
+
+  function Catalog(elem) {
+    var that = this;
+    this.elem = elem;
+    this.eSearch = elem.find('.catalog__search');
+    this.ePlan = elem.find('.catalog__plan');
+    this.eCats = elem.find('.catalog__cats');
+    this.eMax = elem.find('.catalog__max');
+    this.eMaxValue = elem.find('.catalog__max-value');
+    this.eFree = elem.find('.catalog__free');
+    this.eStudent = elem.find('.catalog__student');
+    this.eTeam = elem.find('.catalog__team');
+    this.eSort = elem.find('.catalog__sort');
+    this.eCount = elem.find('.results__count');
+    this.eList = elem.find('.results__list');
+    this.eSearch.on('input', function () {
+      state.filters.q = this.value;
+      that.renderResults();
+    });
+    this.eMax.on('input', function () {
+      state.filters.max = Number(this.value) >= that.maxPrice() ? null : Number(this.value);
+      that.renderMax();
+      that.renderResults();
+    });
+    this.eFree.on('change', function () {
+      state.filters.free = this.checked;
+      that.renderResults();
+    });
+    this.eStudent.on('change', function () {
+      state.filters.student = this.checked;
+      that.renderResults();
+    });
+    this.eTeam.on('change', function () {
+      state.filters.team = this.checked;
+      that.renderResults();
+    });
+    this.eSort.on('change', function () {
+      state.filters.sort = this.value;
+      that.renderResults();
+    });
+    this.eCats.on('click', '.chip', function () {
+      state.filters.cat = $(this).attr('data-id');
+      that.renderCats();
+      that.renderResults();
+    });
+    elem.find('.catalog__reset').on('click', function () {
+      state.filters = newFilters();
+      that.render();
+    });
+  }
+
+  Catalog.prototype.maxPrice = function () {
+    var max = 10;
+    $.each(state.data.services, function (i, item) {
+      max = Math.max(max, Calc.priceFor(item, {plan: state.set.plan, seats: 1, useYearly: false}).monthly);
+    });
+    return Math.ceil(max / 5) * 5;
+  };
+
+  Catalog.prototype.renderCats = function () {
+    var html = '<button class="chip' + (state.filters.cat === 'all' ? ' chip_active_yes' : '') + '" type="button" data-id="all">' + T('Усі') + '</button>';
+    $.each(state.data.categories, function (i, item) {
+      html += '<button class="chip' + (state.filters.cat === item.id ? ' chip_active_yes' : '') + '" type="button" data-id="' + item.id + '">' + esc(L(item, 'name')) + '</button>';
+    });
+    this.eCats.html(html);
+  };
+
+  Catalog.prototype.renderMax = function () {
+    var max = this.maxPrice();
+    var current = state.filters.max;
+    this.eMax.attr('max', max).val(current == null ? max : Math.min(current, max));
+    this.eMaxValue.text(current == null ? T('без обмеження') : money(current));
+  };
+
+  Catalog.prototype.renderSort = function () {
+    var html = '';
+    $.each([['name', 'За назвою'], ['price-asc', 'Спочатку дешевші'], ['price-desc', 'Спочатку дорожчі'], ['discount', 'Більша студентська знижка']], function (i, option) {
+      html += '<option value="' + option[0] + '">' + T(option[1]) + '</option>';
+    });
+    this.eSort.html(html).val(state.filters.sort);
+  };
+
+  Catalog.prototype.filtered = function () {
+    var filters = state.filters;
+    var q = $.trim(filters.q).toLowerCase();
+    var options = {plan: state.set.plan, seats: 1, useYearly: false};
+    var list = $.grep(state.data.services, function (item) {
+      if (filters.cat !== 'all' && item.category !== filters.cat) {
+        return false;
+      }
+      if (q && (item.name + ' ' + L(item, 'desc')).toLowerCase().indexOf(q) === -1) {
+        return false;
+      }
+      if (filters.free && !item.free) {
+        return false;
+      }
+      if (filters.student && !(item.studentDiscount > 0)) {
+        return false;
+      }
+      if (filters.team && !(item.team && item.team.price != null)) {
+        return false;
+      }
+      return filters.max == null || Calc.priceFor(item, options).monthly <= filters.max;
+    });
+    function monthly(item) {
+      return Calc.priceFor(item, options).monthly;
+    }
+    list.sort(function (a, b) {
+      if (filters.sort === 'price-asc') {
+        return monthly(a) - monthly(b);
+      }
+      if (filters.sort === 'price-desc') {
+        return monthly(b) - monthly(a);
+      }
+      if (filters.sort === 'discount') {
+        return (b.studentDiscount || 0) - (a.studentDiscount || 0);
+      }
+      return a.name.localeCompare(b.name, I18n.lang());
+    });
+    return list;
+  };
+
+  Catalog.prototype.renderResults = function () {
+    var list = this.filtered();
+    var html = '';
+    this.eCount.html(T('Знайдено: {n} з {total}', {n: '<b>' + list.length + '</b>', total: state.data.services.length}));
+    if (!list.length) {
+      this.eList.html('<div class="card empty"><div class="empty__icon">🐾</div><h3>' + T('Нічого не знайшлося') + '</h3><p>' + T('Спробуйте послабити фільтри.') + '</p></div>');
       return;
     }
-    indexCatalog();
-    S.set = sanitizeSet(Api.loadSet());
-    S.compare = (Api.loadCompare() || []).filter((id) => S.byId[id]).slice(0, 2);
-    S.user = await Api.me();
-    render();
+    $.each(list, function (i, item) {
+      html += serviceCard(item);
+    });
+    this.eList.html(html);
+  };
+
+  Catalog.prototype.render = function () {
+    this.eSearch.val(state.filters.q);
+    this.ePlan.html(switchHtml(state.set.plan));
+    this.eFree.prop('checked', state.filters.free);
+    this.eStudent.prop('checked', state.filters.student);
+    this.eTeam.prop('checked', state.filters.team);
+    this.renderCats();
+    this.renderMax();
+    this.renderSort();
+    this.renderResults();
+  };
+
+  function ServicePage(elem) {
+    this.elem = elem.find('.service-page');
   }
-  // Експортуємо для налагодження й тестів інтерфейсу
-  window.SubdogApp = { state: S, render: render };
-  init();
-})();
+
+  ServicePage.prototype.render = function (id) {
+    var item = service(id);
+    var html;
+    var individual;
+    var student;
+    var team;
+    var hasTeam;
+    var added;
+    var compared;
+    var similar = '';
+    if (!item) {
+      this.elem.html('<div class="card empty"><div class="empty__icon">🐾</div><h1>' + T('Підписку не знайдено') + '</h1><p><a href="#/catalog">' + T('Повернутися до каталогу') + '</a></p></div>');
+      return;
+    }
+    individual = Calc.priceFor(item, {plan: 'individual', useYearly: true});
+    student = Calc.priceFor(item, {plan: 'student', useYearly: true});
+    team = Calc.priceFor(item, {plan: 'team', seats: 1, useYearly: true});
+    hasTeam = item.team && item.team.price != null;
+    added = inSet(item.id);
+    compared = $.inArray(item.id, state.compare) !== -1;
+    $.each(state.data.services, function (i, other) {
+      if (other.category === item.category && other.id !== item.id) {
+        similar += serviceCard(other);
+      }
+    });
+    html = '<p><a href="#/catalog">' + T('← До каталогу') + '</a></p>' +
+      '<div class="card">' +
+      '<div class="service__head">' + logo(item, true) + '<div><h1>' + esc(item.name) + '</h1><span class="muted">' + esc(categoryName(item.category)) + '</span></div></div>' +
+      '<div class="tags">' + badges(item) + '</div>' +
+      '<p>' + esc(L(item, 'desc')) + '</p>' +
+      '<div class="table-box"><table class="table"><thead><tr><th>' + T('План') + '</th><th>' + T('На місяць') + '</th><th>' + T('На рік') + '</th><th>' + T('Примітка') + '</th></tr></thead><tbody>' +
+      (item.free ? '<tr><td>' + T('Безкоштовний') + '</td><td class="num">' + money(0) + '</td><td class="num">' + money(0) + '</td><td>' + esc(L(item, 'freeNote')) + '</td></tr>' : '') +
+      '<tr><td>' + planLabel('individual') + '</td><td class="num">' + money(individual.monthly) + '</td><td class="num">' + money(individual.yearly) + '</td><td>' + (individual.annualTariff ? T('річний тариф дешевший на {x}', {x: money(individual.saveByAnnual)}) : T('річного тарифу немає — 12 × місяць')) + '</td></tr>' +
+      '<tr><td>' + planLabel('student') + '</td><td class="num">' + money(student.monthly) + '</td><td class="num">' + money(student.yearly) + '</td><td>' + (student.discount ? T('знижка {n}% (потрібне підтвердження статусу)', {n: student.discount}) : T('студентської знижки немає')) + '</td></tr>' +
+      '<tr><td>' + planLabel('team') + '</td><td class="num">' + (hasTeam ? money(team.monthly) : '—') + '</td><td class="num">' + (hasTeam ? money(team.yearly) : '—') + '</td><td>' + (hasTeam ? T('ціна за одну людину') : T('командного плану немає')) + '</td></tr>' +
+      '</tbody></table></div>' +
+      this.source(item) +
+      '<div class="service__actions">' +
+      '<button class="service__toggle button button_type_primary" type="button" data-id="' + item.id + '">' + (added ? T('Прибрати з набору') : T('+ До набору')) + '</button>' +
+      '<button class="service__compare button button_type_ghost" type="button" data-id="' + item.id + '">' + (compared ? T('Прибрати з порівняння') : T('Порівняти')) + '</button>' +
+      '<a class="button button_type_ghost" href="' + esc(safeUrl(item.url)) + '" target="_blank" rel="noopener noreferrer">' + T('Сайт сервісу ↗') + '</a>' +
+      '</div></div>' +
+      (similar ? '<section class="section"><h2>' + T('Схожі в категорії «{c}»', {c: esc(categoryName(item.category))}) + '</h2><div class="grid">' + similar + '</div></section>' : '');
+    this.elem.html(html);
+  };
+
+  ServicePage.prototype.source = function (item) {
+    var source = SOURCES[item.priceSource] || SOURCES.unverified;
+    var note = L(item, 'priceNote');
+    return '<p><span class="tag ' + source[0] + '">' + T(source[1]) + '</span> <span class="muted small">' + formatDate(item.priceDate) + '</span></p>' +
+      (note ? '<p class="muted small">' + esc(note) + '</p>' : '') +
+      '<p class="muted small">' + T('Ціни в доларах США, без податків. Актуальні умови — на офіційному сайті.') + '</p>';
+  };
+
+  function Builder(elem) {
+    var that = this;
+    this.elem = elem;
+    this.eSet = elem.find('.set');
+    this.eAdder = elem.find('.adder');
+    this.eCats = elem.find('.builder__cats');
+    this.eSearch = elem.find('.builder__search');
+    this.eClear = elem.find('.builder__clear');
+    this.eCalc = elem.find('.calc');
+    this.eClear.on('click', function () {
+      dialog.confirm(T('Очистити набір?'), T('Усі сервіси буде прибрано з набору.'), T('Очистити'), true).then(function (ok) {
+        if (ok) {
+          state.set.items = [];
+          save();
+          refresh();
+        }
+      });
+    });
+    this.eSearch.on('input', function () {
+      state.adder.q = this.value;
+      that.renderAdder();
+    });
+    this.eCats.on('click', '.chip', function () {
+      state.adder.cat = $(this).attr('data-id');
+      that.renderCats();
+      that.renderAdder();
+    });
+    this.eAdder.on('click', '.adder__item', function () {
+      toggleInSet($(this).attr('data-id'));
+      refresh();
+    });
+    this.eSet.on('click', '.item__remove', function () {
+      var id = $(this).attr('data-id');
+      state.set.items = $.grep(state.set.items, function (item) {
+        return item.id !== id;
+      });
+      save();
+      refresh();
+    });
+    this.eSet.on('change', '.item__free', function () {
+      var id = $(this).attr('data-id');
+      var checked = this.checked;
+      $.each(state.set.items, function (i, item) {
+        if (item.id === id) {
+          item.free = checked;
+        }
+      });
+      save();
+      refresh();
+    });
+    this.eSet.on('click', '.licenses__minus', function () {
+      setQty($(this).attr('data-id'), -1);
+    });
+    this.eSet.on('click', '.licenses__plus', function () {
+      setQty($(this).attr('data-id'), 1);
+    });
+    this.eCalc.on('change', '.calc__student', function () {
+      state.set.plan = this.checked ? 'student' : 'individual';
+      save();
+      refresh();
+    });
+    this.eCalc.on('change', '.calc__yearly', function () {
+      state.set.yearly = this.checked;
+      save();
+      refresh();
+    });
+    this.eCalc.on('change', '.calc__seats', function () {
+      setSeats(Number(this.value) || 1);
+    });
+    this.eCalc.on('click', '.calc__seats-minus', function () {
+      setSeats(state.set.seats - 1);
+    });
+    this.eCalc.on('click', '.calc__seats-plus', function () {
+      setSeats(state.set.seats + 1);
+    });
+    this.eCalc.on('click', '.calc__seats-preset', function () {
+      setSeats(Number($(this).attr('data-id')));
+    });
+    this.eCalc.on('click', '.calc__save', function () {
+      that.saveSet();
+    });
+  }
+
+  Builder.prototype.saveSet = function () {
+    if (!state.user) {
+      toast(T('Спочатку увійдіть в акаунт'));
+      state.account = 'login';
+      location.hash = '#/account';
+      return;
+    }
+    dialog.open({
+      title: T('Зберегти набір'),
+      body: '<div class="field"><label class="field__label" for="set-name">' + T('Назва набору') + '</label><input class="input" id="set-name" name="name" type="text" maxlength="60" value="' + esc(T('Мій набір')) + '"></div>',
+      validate: function (values) {
+        return $.trim(values.name || '') ? '' : T('Вкажіть назву набору.');
+      }
+    }).then(function (values) {
+      if (!values) {
+        return null;
+      }
+      return Api.saveUserSet($.trim(values.name), state.set).then(function () {
+        toast(T('Набір збережено в акаунті'));
+      }, function (error) {
+        toast(error.message);
+      });
+    });
+  };
+
+  Builder.prototype.renderSet = function () {
+    var that = this;
+    var sum = totals();
+    var duplicate = {};
+    var html = '';
+    if (!state.set.items.length) {
+      this.eSet.html('<div class="empty"><div class="empty__icon">🐕</div><h3>' + T('Набір порожній') + '</h3><p>' + T('Дайте відповіді на питання майстра або додайте сервіси вручну.') + '</p>' +
+        '<a class="button button_type_primary" href="#/">' + T('Зібрати за питаннями') + '</a> <a class="button button_type_ghost" href="#/catalog">' + T('Відкрити каталог') + '</a></div>');
+      this.eClear.prop('disabled', true);
+      return;
+    }
+    $.each(Calc.duplicates(state.set.items, state.byId), function (i, item) {
+      duplicate[item.group] = true;
+    });
+    $.each(sum.rows, function (i, row) {
+      html += that.item(row, duplicate);
+    });
+    this.eSet.html(html);
+    this.eClear.prop('disabled', false);
+  };
+
+  Builder.prototype.item = function (row, duplicate) {
+    var item = row.service;
+    var price = row.price;
+    var free = row.item.free;
+    var teamMode = state.set.plan === 'team' && !free;
+    var tags = '';
+    var group = Calc.groupOf(item);
+    if (duplicate[group]) {
+      tags += '<span class="tag tag_type_warn" title="' + esc(T('У наборі кілька сервісів з однаковою роллю («{g}»). Це лише підказка: переконайтеся, що вони вам обидва потрібні.', {g: groupName(group)})) + '">' + T('⚠ дублюється') + '</span>';
+    }
+    if (free) {
+      tags += '<span class="tag tag_type_good" title="' + esc(L(item, 'freeNote')) + '">' + T('безкоштовний план') + '</span>';
+    } else {
+      if (price.discount) {
+        tags += '<span class="tag tag_type_good">' + T('−{n}% студентська знижка', {n: price.discount}) + '</span>';
+      }
+      if (price.noStudent) {
+        tags += '<span class="tag">' + T('без студентської знижки') + '</span>';
+      }
+      if (price.noTeam) {
+        tags += '<span class="tag">' + T('командного плану немає, окремі акаунти') + '</span>';
+      }
+      if (price.minApplied) {
+        tags += '<span class="tag">' + T('мінімум {n} місць', {n: price.minApplied}) + '</span>';
+      }
+      if (price.seats > 1 && !teamMode) {
+        tags += '<span class="tag">' + T('{n} ос.', {n: price.seats}) + '</span>';
+      }
+      if (price.annualTariff) {
+        tags += '<span class="tag tag_type_good">' + T('річний тариф −{x}', {x: money(price.saveByAnnual)}) + '</span>';
+      }
+    }
+    return '<div class="item">' + logo(item) +
+      '<div class="item__body"><a class="item__name" href="#/service/' + encodeURIComponent(item.id) + '">' + esc(item.name) + '</a> <span class="muted small">' + esc(categoryName(item.category)) + '</span>' +
+      '<div class="tags">' + tags + '</div>' +
+      '<div class="item__controls">' +
+      (teamMode ? '<span class="licenses" role="group" aria-label="' + esc(T('Ліцензій для {name}', {name: item.name})) + '">' +
+        '<button class="licenses__minus button button_size_small" type="button" data-id="' + item.id + '" aria-label="' + T('Менше ліцензій') + '">−</button>' +
+        '<span class="licenses__count num" aria-live="polite">' + price.seats + '</span>' +
+        '<button class="licenses__plus button button_size_small" type="button" data-id="' + item.id + '" aria-label="' + T('Більше ліцензій') + '">+</button>' +
+        '<span class="muted small">' + T('ліцензій') + '</span></span>' : '') +
+      (item.free ? '<label class="check"><input class="item__free" type="checkbox" data-id="' + item.id + '"' + (free ? ' checked' : '') + '> ' + T('Безкоштовний план') + '</label>' : '') +
+      '<button class="item__remove button button_size_small button_type_danger" type="button" data-id="' + item.id + '" aria-label="' + esc(T('Прибрати {name} з набору', {name: item.name})) + '">' + T('Прибрати') + '</button>' +
+      '</div></div>' +
+      '<div class="item__cost num">' + money(price.monthly) + '<small>' + T('/міс') + ' · ' + money(price.yearly) + T('/рік') + '</small></div></div>';
+  };
+
+  Builder.prototype.renderCats = function () {
+    var html = '<button class="chip' + (state.adder.cat === 'all' ? ' chip_active_yes' : '') + '" type="button" data-id="all">' + T('Усі') + '</button>';
+    $.each(state.data.categories, function (i, item) {
+      html += '<button class="chip' + (state.adder.cat === item.id ? ' chip_active_yes' : '') + '" type="button" data-id="' + item.id + '">' + esc(L(item, 'name')) + '</button>';
+    });
+    this.eCats.html(html);
+  };
+
+  Builder.prototype.renderAdder = function () {
+    var q = $.trim(state.adder.q).toLowerCase();
+    var html = '';
+    $.each(state.data.services, function (i, item) {
+      if (inSet(item.id) || (state.adder.cat !== 'all' && item.category !== state.adder.cat) || (q && item.name.toLowerCase().indexOf(q) === -1)) {
+        return;
+      }
+      html += '<button class="adder__item" type="button" data-id="' + item.id + '">' + logo(item) +
+        '<span><b>' + esc(item.name) + '</b><br><span class="muted small num">' + priceInline(item, state.set.plan, 1) + (state.set.plan === 'team' ? ' ' + T('/ особа') : '') + '</span></span></button>';
+    });
+    this.eAdder.html(html || '<p class="muted">' + T('Нічого додавати — або все вже в наборі, або пошук нічого не знайшов.') + '</p>');
+  };
+
+  Builder.prototype.renderCalc = function () {
+    var sum = totals();
+    var plain = totals({plan: 'individual', seats: 1, useYearly: state.set.yearly});
+    var saved = state.set.plan === 'student' ? Calc.r2(plain.monthly - sum.monthly) : 0;
+    var team = state.set.plan === 'team';
+    var dups = Calc.duplicates(state.set.items, state.byId);
+    var html = '<h2>' + T('Калькулятор') + '</h2>' +
+      '<div class="field"><span class="field__label">' + T('План') + '</span>' + switchHtml(state.set.plan) + '</div>' +
+      '<label class="check"><input class="calc__student" type="checkbox"' + (state.set.plan === 'student' ? ' checked' : '') + '> ' + T('Студентська знижка') + '</label>';
+    if (team) {
+      html += '<div class="field"><label class="field__label" for="calc-seats">' + T('Кількість людей у команді') + '</label>' +
+        '<div class="stepper"><button class="calc__seats-minus button button_size_small" type="button" aria-label="' + T('Менше людей') + '">−</button>' +
+        '<input class="calc__seats input" id="calc-seats" type="number" min="1" max="500" value="' + state.set.seats + '">' +
+        '<button class="calc__seats-plus button button_size_small" type="button" aria-label="' + T('Більше людей') + '">+</button></div>' +
+        '<div class="chips" role="group" aria-label="' + T('Швидкий вибір кількості людей') + '">';
+      $.each([3, 5, 10, 25, 50], function (i, count) {
+        html += '<button class="calc__seats-preset chip' + (state.set.seats === count ? ' chip_active_yes' : '') + '" type="button" data-id="' + count + '">' + count + '</button>';
+      });
+      html += '</div><span class="field__hint">' + T('Сервіси без командного плану рахуються як 1 акаунт.') + '</span></div>';
+    }
+    html += '<label class="check"><input class="calc__yearly" type="checkbox"' + (state.set.yearly ? ' checked' : '') + '> ' + T('Річні тарифи (де вони є)') + '</label>' +
+      '<div class="total"><span>' + T('На місяць') + '</span><span class="total__value num">' + money(sum.monthly) + '</span></div>' +
+      '<div class="total total_period_year"><span>' + T('На рік') + '</span><span class="total__value num">' + money(sum.yearly) + '</span></div>';
+    if (team && sum.count) {
+      html += '<p class="num">' + T('На одну людину: {x} на місяць', {x: '<b>' + money(Calc.r2(sum.monthly / state.set.seats)) + '</b>'}) + '</p>';
+    }
+    html += '<p class="muted small num">' + T('{n} {w} у наборі', {n: sum.count, w: serviceWord(sum.count)}) + '</p>';
+    if (saved > 0) {
+      html += '<p class="notice notice_type_good">' + T('Студентська знижка економить {x} на місяць.', {x: money(saved)}) + '</p>';
+    }
+    if (sum.saveByAnnual > 0) {
+      html += '<p class="notice notice_type_good">' + T('Річні тарифи економлять {x} на рік.', {x: money(sum.saveByAnnual)}) + '</p>';
+    }
+    if (dups.length) {
+      html += '<p class="notice">' + T('⚠ Дублюється:') + ' ' + $.map(dups, function (item) {
+        return esc(groupName(item.group)) + ' (' + $.map(item.ids, function (id) {
+          return esc(service(id).name);
+        }).join(', ') + ')';
+      }).join('; ') + '</p>';
+    }
+    html += '<button class="calc__save button button_type_primary button_size_wide" type="button"' + (sum.count ? '' : ' disabled') + '>' + (state.user ? T('Зберегти набір в акаунті') : T('Увійти й зберегти набір')) + '</button>' +
+      '<p class="muted small">' + T('Поточний набір автоматично зберігається в цьому браузері.') + '</p>';
+    this.eCalc.html(html);
+  };
+
+  Builder.prototype.render = function () {
+    this.eSearch.val(state.adder.q);
+    this.renderSet();
+    this.renderCats();
+    this.renderAdder();
+    this.renderCalc();
+  };
+
+  function Compare(elem) {
+    this.elem = elem;
+    this.eFirst = elem.find('.compare__first');
+    this.eSecond = elem.find('.compare__second');
+    this.eResult = elem.find('.compare__result');
+    this.eFirst.on('change', function () {
+      Compare.prototype.pick(0, this.value);
+    });
+    this.eSecond.on('change', function () {
+      Compare.prototype.pick(1, this.value);
+    });
+  }
+
+  Compare.prototype.pick = function (index, id) {
+    var list = [state.compare[0] || '', state.compare[1] || ''];
+    list[index] = id;
+    if (list[0] && list[0] === list[1]) {
+      toast(T('Оберіть два різні сервіси'));
+      list[index] = '';
+    }
+    state.compare = $.grep(list, function (item) {
+      return item;
+    });
+    save();
+    refresh();
+  };
+
+  Compare.prototype.options = function (selected) {
+    var html = '<option value="">' + T('— оберіть сервіс —') + '</option>';
+    var list = state.data.services.slice().sort(function (a, b) {
+      return a.name.localeCompare(b.name, I18n.lang());
+    });
+    $.each(list, function (i, item) {
+      html += '<option value="' + item.id + '"' + (selected === item.id ? ' selected' : '') + '>' + esc(item.name) + '</option>';
+    });
+    return html;
+  };
+
+  Compare.prototype.render = function () {
+    var a = service(state.compare[0]);
+    var b = service(state.compare[1]);
+    var rows = [];
+    var body = '';
+    var yearA;
+    var yearB;
+    var verdict;
+    this.eFirst.html(this.options(state.compare[0]));
+    this.eSecond.html(this.options(state.compare[1]));
+    if (!a || !b) {
+      this.eResult.html('<div class="card empty"><div class="empty__icon">⚖️</div><h3>' + T('Оберіть два сервіси') + '</h3><p>' + T("Тоді з'явиться таблиця з цінами й перевагами.") + '</p></div>');
+      return;
+    }
+    function price(item, plan) {
+      return Calc.priceFor(item, {plan: plan, seats: 1, useYearly: true});
+    }
+    function hasTeam(item) {
+      return item.team && item.team.price != null;
+    }
+    function freeText(item) {
+      return item.free ? T('Так') + (L(item, 'freeNote') ? ' — ' + L(item, 'freeNote') : '') : T('Ні');
+    }
+    function discountText(item) {
+      return item.studentDiscount > 0 ? item.studentDiscount + '%' : T('немає');
+    }
+    function show(row, value) {
+      if (typeof value === 'number') {
+        return row.kind === 'percent' ? value + '%' : money(value);
+      }
+      return value == null ? '<span class="muted">' + T('немає плану') + '</span>' : esc(value);
+    }
+    rows.push([T('Категорія'), categoryName(a.category), categoryName(b.category), '']);
+    rows.push([T('Безкоштовний план'), freeText(a), freeText(b), '']);
+    rows.push([T('Індивідуальний, на місяць'), price(a, 'individual').monthly, price(b, 'individual').monthly, 'min']);
+    rows.push([T('Індивідуальний, на рік'), price(a, 'individual').yearly, price(b, 'individual').yearly, 'min']);
+    rows.push([T('Студентський, на місяць'), price(a, 'student').monthly, price(b, 'student').monthly, 'min']);
+    rows.push([T('Студентська знижка'), discountText(a), discountText(b), 'percent']);
+    rows.push([T('Командний, за людину / міс'), hasTeam(a) ? price(a, 'team').monthly : null, hasTeam(b) ? price(b, 'team').monthly : null, 'min']);
+    rows.push([T('Економія з річним тарифом'), price(a, 'individual').saveByAnnual, price(b, 'individual').saveByAnnual, 'max']);
+    $.each(rows, function (i, row) {
+      var cellA = '';
+      var cellB = '';
+      var kind = row[3];
+      var valueA = row[1];
+      var valueB = row[2];
+      var discountA = a.studentDiscount || 0;
+      var discountB = b.studentDiscount || 0;
+      if (kind === 'percent') {
+        cellA = discountA > discountB ? 'table__cell_best_yes' : '';
+        cellB = discountB > discountA ? 'table__cell_best_yes' : '';
+      } else if (kind && typeof valueA === 'number' && typeof valueB === 'number' && valueA !== valueB) {
+        if (kind === 'min' ? valueA < valueB : valueA > valueB) {
+          cellA = 'table__cell_best_yes';
+        } else {
+          cellB = 'table__cell_best_yes';
+        }
+      } else if (kind === 'min' && typeof valueA === 'number' && valueB == null) {
+        cellA = 'table__cell_best_yes';
+      } else if (kind === 'min' && typeof valueB === 'number' && valueA == null) {
+        cellB = 'table__cell_best_yes';
+      }
+      body += '<tr><th>' + row[0] + '</th><td class="num ' + cellA + '">' + show({kind: kind}, valueA) + '</td><td class="num ' + cellB + '">' + show({kind: kind}, valueB) + '</td></tr>';
+    });
+    yearA = price(a, state.set.plan).yearly;
+    yearB = price(b, state.set.plan).yearly;
+    verdict = yearA === yearB ? T('За поточним планом на рік вони коштують однаково.') :
+      T('За планом «{plan}» на рік дешевше {name} — на {diff}.', {plan: planLabel(state.set.plan), name: '<b>' + esc((yearA < yearB ? a : b).name) + '</b>', diff: money(Math.abs(yearA - yearB))});
+    function actions(item) {
+      var added = inSet(item.id);
+      return '<td><button class="service__toggle button button_size_small ' + (added ? 'button_active_yes' : 'button_type_primary') + '" type="button" data-id="' + item.id + '">' + (added ? T('✓ У наборі') : T('+ До набору')) + '</button> ' +
+        '<a class="button button_size_small button_type_ghost" href="' + esc(safeUrl(item.url)) + '" target="_blank" rel="noopener noreferrer">' + T('Сайт ↗') + '</a></td>';
+    }
+    this.eResult.html('<div class="card table-box"><table class="table"><thead><tr><th></th>' +
+      '<th><a href="#/service/' + a.id + '">' + esc(a.name) + '</a></th><th><a href="#/service/' + b.id + '">' + esc(b.name) + '</a></th></tr></thead><tbody>' + body +
+      '<tr><th>' + T('Дії') + '</th>' + actions(a) + actions(b) + '</tr></tbody></table>' +
+      '<p class="notice notice_type_good">' + verdict + '</p>' +
+      '<p class="muted small">' + T('Зелений колір — вигідніше значення в рядку. «Річний» враховує річний тариф, якщо він є.') + '</p></div>');
+  };
+
+  function Account(elem) {
+    var that = this;
+    this.elem = elem;
+    this.eAuth = elem.find('.auth');
+    this.eUser = elem.find('.user');
+    this.eTabs = elem.find('.auth__tab');
+    this.eForm = elem.find('.auth__form');
+    this.eName = elem.find('.auth__name');
+    this.eHint = elem.find('.auth__hint');
+    this.eError = elem.find('.auth__error');
+    this.eSubmit = elem.find('.auth__submit');
+    this.eNote = elem.find('.auth__note');
+    this.eInfo = elem.find('.user__info');
+    this.eSets = elem.find('.user__sets');
+    this.eTabs.on('click', function () {
+      state.account = $(this).attr('data-tab');
+      that.renderForm();
+    });
+    this.eForm.on('submit', function (e) {
+      var values = {};
+      e.preventDefault();
+      $.each($(this).serializeArray(), function (i, field) {
+        values[field.name] = field.value;
+      });
+      (state.account === 'register' ? Api.register(values) : Api.login(values)).then(function (user) {
+        state.user = user;
+        toast(T('Вітаємо, {name}!', {name: user.name}));
+        that.eForm[0].reset();
+        refresh();
+      }, function (error) {
+        that.eError.text(error.message).prop('hidden', false);
+      });
+    });
+    elem.find('.user__logout').on('click', function () {
+      Api.logout().then(function () {
+        state.user = null;
+        toast(T('Ви вийшли з акаунта'));
+        refresh();
+      });
+    });
+    this.eSets.on('click', '.saved__open', function () {
+      var id = $(this).attr('data-id');
+      Api.listSets().then(function (sets) {
+        $.each(sets, function (i, item) {
+          if (item.id === id) {
+            replaceSet(item.state, item.name);
+          }
+        });
+      });
+    });
+    this.eSets.on('click', '.saved__delete', function () {
+      var id = $(this).attr('data-id');
+      dialog.confirm(T('Видалити набір?'), T('Цю дію не можна скасувати.'), T('Видалити'), true).then(function (ok) {
+        if (ok) {
+          Api.deleteUserSet(id).then(function () {
+            toast(T('Набір видалено'));
+            that.renderSets();
+          });
+        }
+      });
+    });
+  }
+
+  Account.prototype.renderForm = function () {
+    var register = state.account === 'register';
+    var hint = isLocalHost() ? ' ' + (Api.mode() === 'server' ?
+      T('Адмін: {mail}, пароль із запуску сервера (за замовчуванням {pw}).', {mail: '<span class="kbd">admin@subdog.local</span>', pw: '<span class="kbd">admin123</span>'}) :
+      T('Тестовий адмін: {mail} / {pw}', {mail: '<span class="kbd">admin@subdog.local</span>', pw: '<span class="kbd">admin123</span>'})) : '';
+    this.eTabs.each(function () {
+      $(this).toggleClass('chip_active_yes', $(this).attr('data-tab') === state.account);
+    });
+    this.eName.toggle(register);
+    this.eHint.toggle(register);
+    this.eSubmit.text(register ? T('Створити акаунт') : T('Увійти'));
+    this.eError.prop('hidden', true);
+    this.eNote.html((Api.mode() === 'server' ? T('Акаунти й набори зберігаються на сервері.') : T('Сервер не підключено: дані лежать лише в цьому браузері.')) + hint);
+  };
+
+  Account.prototype.renderSets = function () {
+    var that = this;
+    this.eSets.html('<p class="muted">' + T('Завантаження…') + '</p>');
+    Api.listSets().then(function (sets) {
+      var html = '';
+      if (!sets.length) {
+        that.eSets.html('<div class="card empty"><div class="empty__icon">📂</div><h3>' + T('Збережених наборів ще немає') + '</h3><p>' + T('Зберіть набір у конструкторі й натисніть «Зберегти набір в акаунті».') + '</p><a class="button button_type_primary" href="#/builder">' + T('До конструктора') + '</a></div>');
+        return;
+      }
+      $.each(sets, function (i, item) {
+        var set = sanitizeSet(item.state);
+        var sum = Calc.setTotals(set.items, state.byId, {plan: set.plan, seats: set.seats, useYearly: set.yearly});
+        html += '<article class="card preset"><div class="preset__top"><h3>' + esc(item.name) + '</h3><span class="tag">' + planLabel(set.plan) + '</span></div>' +
+          '<div><span class="preset__price num">' + money(sum.monthly) + '</span> <span class="muted">' + T('/міс') + '</span>' +
+          '<div class="muted small num">' + T('{y} на рік · {n} {w}', {y: money(sum.yearly), n: sum.count, w: serviceWord(sum.count)}) + '</div></div>' +
+          '<div class="muted small">' + T('Збережено {d}', {d: new Date(item.createdAt).toLocaleDateString(I18n.locale())}) + '</div>' +
+          '<div><button class="saved__open button button_size_small button_type_primary" type="button" data-id="' + item.id + '">' + T('Відкрити') + '</button> ' +
+          '<button class="saved__delete button button_size_small button_type_danger" type="button" data-id="' + item.id + '">' + T('Видалити') + '</button></div></article>';
+      });
+      that.eSets.html(html);
+    });
+  };
+
+  Account.prototype.render = function () {
+    this.eAuth.toggle(!state.user);
+    this.eUser.toggle(!!state.user);
+    if (state.user) {
+      this.eInfo.text(state.user.name + ' · ' + state.user.email + (isAdmin() ? ' · ' + T('адмін') : ''));
+      this.renderSets();
+    } else {
+      this.renderForm();
+    }
+  };
+
+  function Admin(elem) {
+    var that = this;
+    this.elem = elem;
+    this.eGuard = elem.find('.admin__guard');
+    this.ePanel = elem.find('.admin__panel');
+    this.eInfo = elem.find('.admin__info');
+    this.eRows = elem.find('.admin__rows');
+    this.eReset = elem.find('.admin__reset');
+    elem.find('.admin__add').on('click', function () {
+      dialog.open({title: T('Новий сервіс'), body: that.form(null), validate: that.validate}).then(function (values) {
+        if (values) {
+          that.save($.merge($.merge([], state.data.services), [that.build(values, null)]), T('Сервіс додано'));
+        }
+      });
+    });
+    elem.find('.admin__export').on('click', function () {
+      var blob = new Blob([JSON.stringify({services: state.data.services}, null, 2)], {type: 'application/json'});
+      var link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'subdog-services.json';
+      link.click();
+      setTimeout(function () {
+        URL.revokeObjectURL(link.href);
+      }, 1000);
+    });
+    this.eReset.on('click', function () {
+      var message = Api.mode() === 'server' ? T('Усі правки каталогу на сервері буде втрачено для всіх користувачів.') : T('Усі зміни каталогу в цьому браузері буде втрачено.');
+      dialog.confirm(T('Скинути каталог?'), message, T('Скинути'), true).then(function (ok) {
+        if (ok) {
+          that.run(Api.resetCatalog(), T('Каталог скинуто'));
+        }
+      });
+    });
+    this.eRows.on('click', '.admin__edit', function () {
+      var old = service($(this).attr('data-id'));
+      dialog.open({title: T('Змінити: {name}', {name: old.name}), body: that.form(old), validate: that.validate}).then(function (values) {
+        var updated;
+        if (values) {
+          updated = that.build(values, old);
+          that.save($.map(state.data.services, function (item) {
+            return item.id === old.id ? updated : item;
+          }), T('Зміни збережено'));
+        }
+      });
+    });
+    this.eRows.on('click', '.admin__delete', function () {
+      var item = service($(this).attr('data-id'));
+      dialog.confirm(T('Видалити сервіс?'), T('«{name}» зникне з каталогу та з усіх наборів. Це можна скасувати лише кнопкою «Скинути до початкового».', {name: item.name}), T('Видалити'), true).then(function (ok) {
+        if (ok) {
+          that.save($.grep(state.data.services, function (other) {
+            return other.id !== item.id;
+          }), T('Сервіс видалено'));
+        }
+      });
+    });
+  }
+
+  Admin.prototype.save = function (services, message) {
+    this.run(Api.saveServices(services), message);
+  };
+
+  Admin.prototype.run = function (promise, message) {
+    return promise.then(function () {
+      return Api.getCatalog();
+    }).then(function (data) {
+      state.data = data;
+      indexCatalog();
+      state.set = sanitizeSet(state.set);
+      state.compare = $.grep(state.compare, function (id) {
+        return state.byId[id];
+      }).slice(0, 2);
+      save();
+      refresh();
+      toast(message);
+    }, function (error) {
+      toast(error.message || T('Не вдалося зберегти'));
+    });
+  };
+
+  Admin.prototype.field = function (label, input, hint) {
+    return '<div class="field"><label class="field__label">' + label + '</label>' + input + (hint ? '<span class="field__hint">' + hint + '</span>' : '') + '</div>';
+  };
+
+  Admin.prototype.form = function (item) {
+    var v = item || {name: '', category: state.data.categories[0].id, desc: '', url: 'https://', price: '', yearlyPrice: '', studentDiscount: 0, free: false, freeNote: '', team: null};
+    var teamPrice = v.team && v.team.price != null ? v.team.price : '';
+    var teamYearly = v.team && v.team.yearlyPrice != null ? v.team.yearlyPrice : '';
+    var minSeats = v.team && v.team.minSeats ? v.team.minSeats : '';
+    var categories = '';
+    var groups = '<option value="">' + T('За категорією') + '</option>';
+    var sources = '';
+    function input(name, type, value, extra) {
+      return '<input class="input" name="' + name + '" type="' + type + '" value="' + esc(value) + '" ' + (extra || '') + '>';
+    }
+    function area(name, value) {
+      return '<textarea class="input" name="' + name + '">' + esc(value) + '</textarea>';
+    }
+    $.each(state.data.categories, function (i, cat) {
+      categories += '<option value="' + cat.id + '"' + (v.category === cat.id ? ' selected' : '') + '>' + esc(L(cat, 'name')) + '</option>';
+    });
+    $.each(state.data.groups || {}, function (key) {
+      groups += '<option value="' + esc(key) + '"' + (v.group === key ? ' selected' : '') + '>' + esc(groupName(key)) + '</option>';
+    });
+    $.each(SOURCES, function (key, source) {
+      sources += '<option value="' + key + '"' + ((v.priceSource || 'manual') === key ? ' selected' : '') + '>' + esc(T(source[1])) + '</option>';
+    });
+    return this.field(T('Назва'), input('name', 'text', v.name)) +
+      '<div class="form-grid">' +
+      this.field(T('Категорія'), '<select class="input" name="category">' + categories + '</select>') +
+      this.field(T('Посилання'), input('url', 'url', v.url)) + '</div>' +
+      this.field(T('Опис'), area('desc', v.desc)) +
+      this.field(T('Опис (англійською)'), area('desc_en', v.desc_en || ''), T('Порожньо — буде показано український опис')) +
+      '<div class="form-grid">' +
+      this.field(T('Ціна, $/міс'), input('price', 'number', v.price, 'min="0" step="any"')) +
+      this.field(T('Річний тариф, $/рік'), input('yearlyPrice', 'number', v.yearlyPrice == null ? '' : v.yearlyPrice, 'min="0" step="any"'), T('Порожньо — немає')) +
+      this.field(T('Студентська знижка, %'), input('studentDiscount', 'number', v.studentDiscount || 0, 'min="0" max="100" step="any"')) +
+      this.field(T('Командний, $/міс за людину'), input('teamPrice', 'number', teamPrice, 'min="0" step="any"'), T('Порожньо — немає командного плану')) +
+      this.field(T('Командний, $/рік за людину'), input('teamYearly', 'number', teamYearly, 'min="0" step="any"')) + '</div>' +
+      '<div class="form-grid">' +
+      this.field(T('Мінімум місць у командному плані'), input('minSeats', 'number', minSeats, 'min="1" step="1"'), T('Порожньо — без мінімуму')) +
+      this.field(T('Група для підказки «дублюється»'), '<select class="input" name="group">' + groups + '</select>') + '</div>' +
+      '<label class="check"><input name="free" type="checkbox"' + (v.free ? ' checked' : '') + '> ' + T('Є безкоштовний план') + '</label>' +
+      this.field(T('Що входить у безкоштовний план'), input('freeNote', 'text', v.freeNote || '')) +
+      this.field(T('Джерело ціни'), '<select class="input" name="priceSource">' + sources + '</select>') +
+      this.field(T('Примітка до ціни'), area('priceNote', v.priceNote || ''), T('Що саме перевірено: умови, акції, обмеження')) +
+      this.field(T('Примітка до ціни (англійською)'), area('priceNote_en', v.priceNote_en || ''));
+  };
+
+  Admin.prototype.validate = function (values) {
+    var discount = Number(values.studentDiscount || 0);
+    if (!$.trim(values.name || '')) {
+      return T('Вкажіть назву.');
+    }
+    if (!/^https?:\/\//i.test(values.url || '')) {
+      return T('Посилання має починатися з http:// або https://');
+    }
+    if (values.price === '' || !(Number(values.price) >= 0)) {
+      return T('Вкажіть ціну (число від 0).');
+    }
+    if (!(discount >= 0 && discount <= 100)) {
+      return T('Знижка має бути від 0 до 100%.');
+    }
+    if (values.yearlyPrice !== '' && !(Number(values.yearlyPrice) >= 0)) {
+      return T('Річний тариф має бути числом від 0.');
+    }
+    if (values.teamPrice !== '' && !(Number(values.teamPrice) >= 0)) {
+      return T('Командна ціна має бути числом від 0.');
+    }
+    if (values.minSeats !== '' && !(Number(values.minSeats) >= 1)) {
+      return T('Мінімум місць має бути числом від 1.');
+    }
+    if (values.yearlyPrice !== '' && Number(values.yearlyPrice) > Number(values.price) * 12 + 0.005) {
+      return T('Річний тариф не може бути дорожчим за 12 місяців.');
+    }
+    return '';
+  };
+
+  Admin.prototype.slug = function (name) {
+    var map = {а: 'a', б: 'b', в: 'v', г: 'h', ґ: 'g', д: 'd', е: 'e', є: 'ie', ж: 'zh', з: 'z', и: 'y', і: 'i', ї: 'i', й: 'i', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ь: '', ю: 'iu', я: 'ia'};
+    var text = $.map(name.toLowerCase().split(''), function (c) {
+      return map[c] !== undefined ? map[c] : c;
+    }).join('');
+    return text.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'svc';
+  };
+
+  Admin.prototype.build = function (values, old) {
+    var id = old ? old.id : this.slug(values.name);
+    var base = id;
+    var count = 2;
+    var result;
+    var changed = false;
+    function number(value) {
+      return value === '' || value == null ? null : Number(value);
+    }
+    function normal(value) {
+      return value === '' || value == null ? '' : String(Number(value));
+    }
+    if (!old) {
+      while (state.byId[id]) {
+        id = base + '-' + count++;
+      }
+    }
+    result = {
+      id: id,
+      name: $.trim(values.name),
+      category: values.category,
+      desc: $.trim(values.desc || ''),
+      url: $.trim(values.url),
+      price: Number(values.price),
+      yearlyPrice: number(values.yearlyPrice),
+      studentDiscount: Number(values.studentDiscount || 0),
+      free: !!values.free,
+      freeNote: $.trim(values.freeNote || ''),
+      team: values.teamPrice === '' ? null : {price: Number(values.teamPrice), yearlyPrice: number(values.teamYearly)},
+      priceDate: new Date().toISOString().slice(0, 10),
+      priceSource: SOURCES[values.priceSource] ? values.priceSource : 'manual',
+      priceNote: $.trim(values.priceNote || '')
+    };
+    if ($.trim(values.desc_en || '')) {
+      result.desc_en = $.trim(values.desc_en);
+    }
+    if ($.trim(values.priceNote_en || '')) {
+      result.priceNote_en = $.trim(values.priceNote_en);
+    }
+    if (old && old.freeNote_en && result.freeNote === old.freeNote) {
+      result.freeNote_en = old.freeNote_en;
+    }
+    if (result.team && values.minSeats !== '') {
+      result.team.minSeats = Math.floor(Number(values.minSeats));
+    }
+    if (values.group) {
+      result.group = values.group;
+    }
+    if (old && values.priceSource === old.priceSource) {
+      $.each(['price', 'yearlyPrice', 'studentDiscount'], function (i, key) {
+        if (normal(old[key]) !== normal(values[key])) {
+          changed = true;
+        }
+      });
+      if (changed) {
+        result.priceSource = 'manual';
+      }
+    }
+    return result;
+  };
+
+  Admin.prototype.render = function () {
+    var html = '';
+    var list;
+    this.eGuard.toggle(!isAdmin());
+    this.ePanel.toggle(isAdmin());
+    if (!isAdmin()) {
+      return;
+    }
+    list = state.data.services.slice().sort(function (a, b) {
+      return a.category.localeCompare(b.category) || a.name.localeCompare(b.name, I18n.lang());
+    });
+    $.each(list, function (i, item) {
+      html += '<tr><td><b>' + esc(item.name) + '</b></td><td>' + esc(categoryName(item.category)) + '</td>' +
+        '<td class="num">' + money(item.price) + '</td><td class="num">' + (item.yearlyPrice != null ? money(item.yearlyPrice) : '—') + '</td>' +
+        '<td>' + (item.studentDiscount ? item.studentDiscount + '%' : '—') + '</td>' +
+        '<td class="num">' + (item.team && item.team.price != null ? money(item.team.price) : '—') + '</td>' +
+        '<td>' + (item.free ? T('так') : '—') + '</td><td>' + formatDate(item.priceDate) + '</td>' +
+        '<td><button class="admin__edit button button_size_small" type="button" data-id="' + item.id + '">' + T('Змінити') + '</button> ' +
+        '<button class="admin__delete button button_size_small button_type_danger" type="button" data-id="' + item.id + '" aria-label="' + esc(T('Видалити {name}', {name: item.name})) + '">' + T('Видалити') + '</button></td></tr>';
+    });
+    this.eRows.html(html);
+    this.eReset.prop('disabled', !state.data.customized);
+    this.eInfo.html(T('Каталог: {n} сервісів.', {n: '<b>' + list.length + '</b>'}) + ' ' +
+      (state.data.customized ? T('Показано змінену версію (зберігається в цьому браузері).') : T('Показано початкову версію з catalog.json.')));
+  };
+
+  function readRoute() {
+    var parts = location.hash.replace(/^#\/?/, '').split('/');
+    return {name: parts[0] || '', arg: parts[1] ? decodeURIComponent(parts[1]) : ''};
+  }
+
+  function pageTitle(name) {
+    return {
+      catalog: T('Каталог'),
+      builder: T('Конструктор набору'),
+      compare: T('Порівняння підписок'),
+      account: T('Акаунт'),
+      admin: T('Адмін-панель'),
+      service: T('Картка підписки')
+    }[name];
+  }
+
+  function show() {
+    var next = readRoute();
+    var changed = next.name !== route.name || next.arg !== route.arg;
+    if (!pages[next.name]) {
+      next = {name: '', arg: ''};
+    }
+    route = next;
+    $('.page').hide();
+    $('.page_name_' + (route.name || 'home')).show();
+    document.title = route.name ? (pageTitle(route.name) || 'Subdog') + ' — Subdog' : T('Subdog — конструктор комплекту підписок');
+    header.toggle(false);
+    pages[route.name].render(route.arg);
+    header.render();
+    if (changed) {
+      window.scrollTo(0, 0);
+    }
+  }
+
+  $(document).on('click', '.service__toggle', function () {
+    toggleInSet($(this).attr('data-id'));
+    refresh();
+  });
+
+  $(document).on('click', '.service__compare', function () {
+    toggleCompare($(this).attr('data-id'));
+    refresh();
+  });
+
+  $(document).on('click', '.switch__item', function () {
+    state.set.plan = $(this).attr('data-id');
+    save();
+    refresh();
+  });
+
+  $(window).on('hashchange', show);
+
+  dialog = new Dialog($('.dialog'));
+  header = new Header($('.header'));
+
+  Api.getCatalog().then(function (data) {
+    state.data = data;
+    indexCatalog();
+    state.set = sanitizeSet(Api.loadSet());
+    state.compare = $.grep(Api.loadCompare() || [], function (id) {
+      return state.byId[id];
+    }).slice(0, 2);
+    return Api.me();
+  }).then(function (user) {
+    state.user = user;
+    pages[''] = new Home($('.page_name_home'));
+    pages.catalog = new Catalog($('.page_name_catalog'));
+    pages.service = new ServicePage($('.page_name_service'));
+    pages.builder = new Builder($('.page_name_builder'));
+    pages.compare = new Compare($('.page_name_compare'));
+    pages.account = new Account($('.page_name_account'));
+    pages.admin = new Admin($('.page_name_admin'));
+    translateStatic();
+    show();
+  }, function (error) {
+    $('#app').html('<div class="card empty"><div class="empty__icon">🐾</div><h1>' + T('Не вдалося завантажити каталог') + '</h1><p>' + esc(error.message) + '</p></div>');
+  });
+
+  window.SubdogApp = {state: state, refresh: refresh};
+});

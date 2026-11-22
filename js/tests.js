@@ -1,4 +1,3 @@
-/* Автотести Subdog. Відкрийте tests.html у браузері (краще через serve.ps1, тоді працюють і тести fetch). */
 (async function () {
   'use strict';
   const { priceFor, setTotals, duplicates, recommend } = Calc;
@@ -12,7 +11,6 @@
     throw new Error('очікували помилку «' + (textPart || '') + '»');
   };
 
-  // Демо із завдання: сервіс А 200/міс, сервіс Б 300/міс зі студентською знижкою 50% (одиниця виміру тут не важлива).
   const A = { id: 'a', name: 'Сервіс А', category: 'x', price: 200, studentDiscount: 0 };
   const B = { id: 'b', name: 'Сервіс Б', category: 'y', price: 300, studentDiscount: 50 };
   const byId = { a: A, b: B };
@@ -20,7 +18,6 @@
   const ON = { plan: 'student', seats: 1, useYearly: true };
   const OFF = { plan: 'individual', seats: 1, useYearly: true };
 
-  /* ===== Сценарії тестувальника ===== */
   test('Демо: знижка ввімкнена → 350 грн/міс і 4200 грн/рік', () => {
     const t = setTotals(both, byId, ON);
     eq(t.monthly, 350, 'місяць'); eq(t.yearly, 4200, 'рік');
@@ -60,7 +57,6 @@
     eq(priceFor(A, { plan: 'individual', free: true }).monthly, 200, 'без free-плану');
   });
 
-  /* ===== Командний план ===== */
   test('Командний план: ціна за людину × кількість; без плану — 1 акаунт', () => {
     const T = { id: 't', name: 'T', category: 'z', price: 100, team: { price: 80 } };
     eq(priceFor(T, { plan: 'team', seats: 5 }).monthly, 400, 'з командним');
@@ -84,7 +80,6 @@
     eq(t.monthly, 3 * 200 + 300, 'сума');
   });
 
-  /* ===== Дублі ===== */
   test('Дві підписки однієї категорії без груп → «дублюється»', () => {
     const dup = duplicates([{ id: 'a' }, { id: 'a2' }, { id: 'b' }], { a: A, a2: { id: 'a2', category: 'x', price: 1 }, b: B });
     eq(dup.length, 1, 'груп'); eq(dup[0].group, 'x', 'група'); eq(dup[0].ids.length, 2, 'сервісів');
@@ -100,7 +95,6 @@
     eq(setTotals([{ id: 'a' }, { id: 'ghost' }], byId, OFF).monthly, 200, 'сума');
   });
 
-  /* ===== Каталог і готові набори ===== */
   const data = window.SUBDOG_DATA;
   const cats = new Set(data.categories.map((c) => c.id));
   const real = {}; data.services.forEach((s) => { real[s.id] = s; });
@@ -157,11 +151,10 @@
   test('catalog.js збігається з catalog.json (запусти sync-catalog.ps1, якщо ні)', async () => {
     let json;
     try { const r = await fetch('data/catalog.json', { cache: 'no-store' }); if (!r.ok) throw new Error(r.status); json = await r.json(); }
-    catch (e) { return 'SKIP'; } // відкрито як file:// — fetch заборонений
+    catch (e) { return 'SKIP'; }
     if (JSON.stringify(json) !== JSON.stringify(window.SUBDOG_DATA)) throw new Error('файли розійшлися');
   });
 
-  /* ===== Долари й англійська версія ===== */
   test('Каталог у доларах: currency = USD, жодна ціна не схожа на гривневу', () => {
     eq(data.currency, 'USD', 'валюта');
     data.services.forEach((s) => {
@@ -222,7 +215,6 @@
     eq(after.services.find((s) => s.id === 'notion').price, data.services.find((s) => s.id === 'notion').price, 'ціна з бази');
     eq(localStorage.getItem(Api.namespaceKeys()[5]), null, 'старий запис видалено');
   });
-  /* ===== «Бекенд»: окремий простір ключів, щоб не псувати справжні дані ===== */
   test('Набір не губиться після перезавантаження (збереження й читання)', () => {
     const state = { items: [{ id: 'notion', free: false }, { id: 'github', free: true, qty: 2 }], plan: 'student', seats: 4, yearly: false };
     Api.saveSet(state);
@@ -268,7 +260,6 @@
     eq((await Api.listSets()).length, 0, 'після видалення');
   });
 
-  /* ===== Адмінка: правки зливаються з базою, а не замінюють її ===== */
   test('Адмінка: правка одного сервісу не заморожує решту каталогу', async () => {
     const base = await Api.getCatalog();
     eq(base.customized, false, 'спочатку без правок');
@@ -304,12 +295,11 @@
     await Api.resetCatalog();
   });
 
-  /* ---- запуск ---- */
   await Api.ready;
   const serverMode = Api.mode() === 'server';
   const prevLang = I18n.lang();
-  I18n.force('uk'); // перевірки повідомлень написано українською
-  Api.forceLocal(true); // тести браузерної реалізації; сервер перевіряє test-api.ps1
+  I18n.force('uk');
+  Api.forceLocal(true);
   Api.setNamespace('subdog.test.' + Date.now() + '.');
   const testKeys = Api.namespaceKeys();
   const results = [];
@@ -319,7 +309,7 @@
       results.push({ name: t.name, ok: true, skip: r === 'SKIP' });
     } catch (e) { results.push({ name: t.name, ok: false, detail: e.message }); }
   }
-  testKeys.forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } });
+  testKeys.forEach((k) => { try { localStorage.removeItem(k); } catch (e) { } });
   Api.setNamespace('subdog.');
   Api.forceLocal(false);
   I18n.force(prevLang);

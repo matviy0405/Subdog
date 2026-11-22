@@ -1,11 +1,7 @@
-/* Subdog — мови (українська за замовчуванням, англійська).
-   Український текст є ключем: T('Ключ') повертає його як є, а англійською — значення зі словника EN.
-   Тексти каталогу (опис, примітки, назви наборів) лежать у catalog.json з суфіксом _en, їх дістає L(obj, 'поле'). */
 (function (root) {
   'use strict';
 
   const EN = {
-    /* --- загальне й навігація --- */
     "Скасувати": "Cancel",
     "Зберегти": "Save",
     "Так": "Yes",
@@ -34,7 +30,6 @@
     "Картка підписки": "Subscription card",
     "Subdog — конструктор комплекту підписок": "Subdog — subscription bundle builder",
 
-    /* --- плани й ціни --- */
     "Індивідуальний": "Individual",
     "Студентський": "Student",
     "Командний": "Team",
@@ -67,7 +62,6 @@
     "За сторонніми джерелами, звірте на сайті": "From third-party sources — check on the website",
     "Введено адміністратором": "Entered by an administrator",
 
-    /* --- головна --- */
     "Конструктор підписок": "Subscription builder",
     "Підписки для навчання й роботи —": "Subscriptions for study and work —",
     "одним комплектом": "in one bundle",
@@ -105,7 +99,6 @@
     "{y} на рік · {n} {w}": "{y} per year · {n} {w}",
     "Взяти цей набір": "Take this set",
 
-    /* --- каталог --- */
     "Усі підписки": "All subscriptions",
     "Фільтри": "Filters",
     "Пошук": "Search",
@@ -130,7 +123,6 @@
     "✓ Порівнюю": "✓ Comparing",
     "Порівняти": "Compare",
 
-    /* --- картка підписки --- */
     "Підписку не знайдено": "Subscription not found",
     "Повернутися до каталогу": "Back to the catalog",
     "← До каталогу": "← To the catalog",
@@ -139,7 +131,6 @@
     "Сайт сервісу ↗": "Service website ↗",
     "Схожі в категорії «{c}»": "Similar in “{c}”",
 
-    /* --- конструктор --- */
     "Ваш набір": "Your set",
     "Очистити": "Clear",
     "Додати сервіс": "Add a service",
@@ -178,7 +169,6 @@
     "Поточний набір автоматично зберігається в цьому браузері.": "The current set is saved automatically in this browser.",
     "Нічого додавати — або все вже в наборі, або пошук нічого не знайшов.": "Nothing to add — either everything is already in the set, or the search found nothing.",
 
-    /* --- порівняння --- */
     "— оберіть сервіс —": "— choose a service —",
     "Порівняйте дві підписки": "Compare two subscriptions",
     "Перший сервіс": "First service",
@@ -201,7 +191,6 @@
     "Оберіть два різні сервіси": "Choose two different services",
     "Готово — відкрийте «Порівняння»": "Done — open “Compare”",
 
-    /* --- акаунт --- */
     "Акаунти й набори зберігаються на сервері.": "Accounts and sets are stored on the server.",
     "Адмін: {mail}, пароль із запуску сервера (за замовчуванням {pw}).": "Admin: {mail}, password from the server start-up (default {pw}).",
     "Сервер не підключено: дані лежать лише в цьому браузері.": "No server connected: data lives only in this browser.",
@@ -224,7 +213,6 @@
     "Вітаємо, {name}!": "Welcome, {name}!",
     "Ви вийшли з акаунта": "You signed out",
 
-    /* --- адмін-панель --- */
     "Тільки для адміністратора": "Administrators only",
     "Увійдіть як адміністратор, щоб керувати каталогом.": "Sign in as an administrator to manage the catalog.",
     "Адміністратор": "Administrator",
@@ -286,7 +274,6 @@
     "Скинути": "Reset",
     "Каталог скинуто": "Catalog reset",
 
-    /* --- дії --- */
     "Прибрано з набору": "Removed from the set",
     "Додано до набору": "Added to the set",
     "Замінити поточний набір?": "Replace the current set?",
@@ -306,7 +293,6 @@
     "Набір видалено": "The set is deleted",
     "Не вдалося завантажити каталог": "Could not load the catalog",
 
-    /* --- повідомлення API (api.js) --- */
     "Введіть коректну пошту": "Enter a valid email",
     "Вкажіть ім'я (мінімум 2 символи)": "Enter your name (at least 2 characters)",
     "Пароль має містити щонайменше 6 символів": "Password must be at least 6 characters",
@@ -333,32 +319,29 @@
 
   function detect() {
     let saved = null;
-    try { saved = root.localStorage.getItem(KEY); } catch (e) { /* приватний режим */ }
+    try { saved = root.localStorage.getItem(KEY); } catch (e) { }
     if (saved === 'uk' || saved === 'en') return saved;
     const nav = String((root.navigator && root.navigator.language) || 'uk').toLowerCase();
     return nav.indexOf('uk') === 0 || nav.indexOf('ru') === 0 ? 'uk' : 'en';
   }
   let lang = detect();
 
-  /** Переклад рядка. {назва} у тексті заміняється значеннями з params. */
   function t(key, params) {
     let s = key;
     if (lang === 'en') {
       if (has(EN, key)) s = EN[key];
-      else if (CYR.test(key)) missing.add(key); // для тесту повноти перекладу
+      else if (CYR.test(key)) missing.add(key);
     }
     if (params) s = s.replace(/\{(\w+)\}/g, (m, k) => (params[k] === undefined ? m : String(params[k])));
     return s;
   }
 
-  /** Поле каталогу з урахуванням мови: obj.desc_en, якщо є, інакше obj.desc */
   function L(obj, field) {
     if (!obj) return '';
     if (lang === 'en' && obj[field + '_en']) return obj[field + '_en'];
     return obj[field] == null ? '' : obj[field];
   }
 
-  /** Форма множини: українська має 3 форми (1, 2–4, 5+), англійська 2. */
   function plural(n, uk3, en2) {
     if (lang === 'en') return n === 1 ? en2[0] : en2[1];
     const m10 = n % 10, m100 = n % 100;
@@ -369,7 +352,7 @@
 
   function setLang(l, persist) {
     lang = l === 'en' ? 'en' : 'uk';
-    if (persist !== false) { try { root.localStorage.setItem(KEY, lang); } catch (e) { /* ignore */ } }
+    if (persist !== false) { try { root.localStorage.setItem(KEY, lang); } catch (e) { } }
     if (root.document) root.document.documentElement.lang = lang;
   }
 
@@ -380,7 +363,6 @@
     lang: () => lang,
     locale: () => (lang === 'en' ? 'en-US' : 'uk-UA'),
     setLang: setLang,
-    /** Тимчасово примусова мова (тести), без збереження */
     force: (l) => setLang(l, false),
     dictionary: EN,
     missing: () => Array.from(missing),

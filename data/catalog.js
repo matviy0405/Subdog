@@ -1,4 +1,3 @@
-/* Generated from catalog.json by sync-catalog.ps1 - copy for file:// mode (fetch is blocked there). Do not edit by hand. */
 window.SUBDOG_DATA = {
   "version": 2,
   "currency": "USD",

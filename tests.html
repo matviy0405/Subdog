@@ -4,23 +4,47 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Тести — Subdog</title>
-  <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/style.css">
   <style>
-    .t { display: grid; grid-template-columns: 32px 1fr; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); }
-    .t .ok { color: var(--good); font-weight: 800; } .t .fail { color: var(--bad); font-weight: 800; }
-    .t small { color: var(--muted); display: block; }
-    .sum { font-size: 1.2rem; font-weight: 800; }
+    .t {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 8px;
+      padding: 10px 0;
+      border-top: 1px solid #2d2350;
+    }
+
+    .t .ok {
+      color: #4ade80;
+      font-weight: 800;
+    }
+
+    .t .fail {
+      color: #f87171;
+      font-weight: 800;
+    }
+
+    .t small {
+      display: block;
+      color: #a79ccb;
+    }
+
+    .sum {
+      font-size: 20px;
+      font-weight: 800;
+    }
   </style>
 </head>
 <body>
-  <main><div class="wrap">
+  <main class="wrap">
     <p><a href="index.html">← На сайт</a></p>
     <h1>Тести Subdog</h1>
     <p class="muted">Автоматична перевірка сценаріїв із завдання тестувальника. Усе виконується в браузері, без встановлення.</p>
-    <div class="card"><p class="sum" id="sum">Виконується…</p><div id="out"></div></div>
-  </div></main>
+    <div class="card">
+      <p class="sum" id="sum">Виконується…</p>
+      <div id="out"></div>
+    </div>
+  </main>
   <script src="data/catalog.js"></script>
   <script src="js/calc.js"></script>
   <script src="js/i18n.js"></script>

@@ -3,59 +3,277 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Subdog — конструктор комплекту підписок</title>
-  <meta name="description" content="Оберіть мету й сферу — Subdog збере комплект підписок для навчання й роботи та порахує вартість на місяць і на рік, у тому числі для команди.">
-  <meta name="theme-color" content="#05030c">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%B6%3C/text%3E%3C/svg%3E">
-
-  <!-- Manrope (заголовки), Inter (текст), JetBrains Mono (підписи) — усі мають кирилицю. Без інтернету працюють запасні Helvetica Neue / Arial. -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Inter:wght@300;400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
-
-  <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/components.css">
-  <link rel="stylesheet" href="css/pages.css">
+  <title>Subdog</title>
+  <meta name="description" content="">
+  <meta name="theme-color" content="#0b0618">
+  <link rel="icon" href="assets/logo-mark.svg">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&amp;display=swap">
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <div class="ambient" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><span class="grid-lines"></span><span class="grain"></span></div>
-  <a class="skip" href="#app" data-i18n="Перейти до вмісту">Перейти до вмісту</a>
+  <a class="skip" href="#app" data-i18n="Перейти до вмісту"></a>
 
-  <header class="site-header" id="siteHeader">
-    <div class="wrap">
-      <div class="bar">
-        <a class="logo" href="#/" aria-label="Subdog — на головну" data-i18n-label="Subdog — на головну">
-          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M8 12.5c-3 .8-4.6 5.5-2.6 9.5 1 2 3.4 2.2 4.4.4"/>
-            <path d="M24 12.5c3 .8 4.6 5.5 2.6 9.5-1 2-3.4 2.2-4.4.4"/>
-            <path d="M9.5 12c1-3.4 3.9-5.5 6.5-5.5s5.5 2.1 6.5 5.5v7.5c0 3.9-3 6.5-6.5 6.5s-6.5-2.6-6.5-6.5z"/>
-            <circle cx="12.7" cy="15.5" r="1" fill="currentColor" stroke="none"/>
-            <circle cx="19.3" cy="15.5" r="1" fill="currentColor" stroke="none"/>
-            <path d="M14.4 20.2h3.2l-1.6 1.9z" fill="currentColor"/>
-          </svg>
-          Subdog
-        </a>
-        <button class="menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="nav">Меню</button>
-        <nav class="nav" id="nav" aria-label="Основна навігація" data-i18n-label="Основна навігація"></nav>
-        <button class="lang-btn" id="langBtn" type="button" aria-label="Switch to English" title="English">EN</button>
-      </div>
+  <header class="header">
+    <div class="wrap header__bar">
+      <a class="header__logo" href="#/" data-i18n-label="Subdog — на головну">
+        <img src="assets/logo-mark.svg" alt="" width="32" height="32">
+        Subdog
+      </a>
+      <button class="header__menu button button_size_small" type="button" aria-expanded="false"></button>
+      <nav class="header__nav" data-i18n-label="Основна навігація"></nav>
+      <button class="header__lang button button_size_small" type="button"></button>
     </div>
   </header>
 
-  <main id="app" tabindex="-1"><div class="wrap"><p class="muted" data-i18n="Завантаження…">Завантаження…</p></div></main>
+  <main id="app" class="wrap" tabindex="-1">
 
-  <footer class="site-footer">
-    <div class="wrap">
-      <p id="footNote">Ціни орієнтовні — звіряйте їх на сайтах сервісів. Назви належать їхнім власникам; Subdog з ними не пов'язаний.</p>
-      <p><span data-i18n="Навчальний проєкт">Навчальний проєкт</span> · <a href="tests.html" data-i18n="Сторінка тестів">Сторінка тестів</a></p>
-    </div>
+    <section class="page page_name_home">
+      <div class="hero">
+        <div class="hero__text">
+          <p class="eyebrow" data-i18n="Конструктор підписок"></p>
+          <h1 class="hero__title"><span data-i18n="Підписки для навчання й роботи —"></span> <span class="hero__accent" data-i18n="одним комплектом"></span></h1>
+          <p class="hero__lead" data-i18n="Оберіть мету й сферу — Subdog запропонує готовий набір сервісів. Приберіть зайве, додайте потрібне й одразу побачите вартість на місяць і на рік, у тому числі для всієї команди."></p>
+          <div class="hero__actions">
+            <a class="button button_type_primary" href="#/catalog" data-i18n="Відкрити каталог"></a>
+            <a class="button button_type_ghost" href="#/builder"><span data-i18n="Мій набір"></span><span class="hero__count"></span></a>
+          </div>
+          <ul class="facts">
+            <li class="facts__item hero__services"></li>
+            <li class="facts__item" data-i18n="Індивідуальний, студентський і командний плани"></li>
+            <li class="facts__item" data-i18n="Сума на місяць і на рік перераховується одразу"></li>
+          </ul>
+        </div>
+        <div class="hero__side">
+          <div class="hero__orb"></div>
+          <div class="wizard card"></div>
+        </div>
+      </div>
+
+      <section class="section">
+        <p class="eyebrow" data-i18n="01 — Готові набори"></p>
+        <h2 data-i18n="Почніть із готового"></h2>
+        <p class="muted" data-i18n="Ціни рахуються за планом набору"></p>
+        <div class="grid presets"></div>
+      </section>
+
+      <section class="section">
+        <div class="business">
+          <div class="business__text">
+            <p class="eyebrow" data-i18n="02 — Для бізнесу"></p>
+            <h2 data-i18n="Замовляєте на всю команду? Рахуйте одразу на всіх"></h2>
+            <p data-i18n="Оберіть командний план і вкажіть кількість людей — калькулятор покаже суму за всіх і ціну на одну людину. Річні тарифи зазвичай дешевші."></p>
+            <button class="button button_type_primary business__button" type="button" data-i18n="Набір для бізнесу"></button>
+          </div>
+          <ul class="business__list">
+            <li class="business__item" data-i18n="Ціна за людину × кількість людей"></li>
+            <li class="business__item" data-i18n="Швидкий вибір: 5, 10, 25 або 50 місць"></li>
+            <li class="business__item" data-i18n="Видно економію від річних тарифів"></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section">
+        <p class="eyebrow" data-i18n="03 — Як це працює"></p>
+        <h2 data-i18n="Три кроки до готового набору"></h2>
+        <div class="steps">
+          <div class="steps__item">
+            <p class="eyebrow">01</p>
+            <h3 data-i18n="Дайте три відповіді"></h3>
+            <p class="muted" data-i18n="Навчання, робота чи обидва; хто ви; у якій сфері."></p>
+          </div>
+          <div class="steps__item">
+            <p class="eyebrow">02</p>
+            <h3 data-i18n="Відредагуйте набір"></h3>
+            <p class="muted" data-i18n="Додайте або приберіть сервіси, увімкніть безкоштовні плани, перемкніть Індивідуальний / Студентський / Командний."></p>
+          </div>
+          <div class="steps__item">
+            <p class="eyebrow">03</p>
+            <h3 data-i18n="Перегляньте суму й збережіть"></h3>
+            <p class="muted" data-i18n="Підсумок перераховується одразу. Набір лишається в браузері, а в акаунті — назавжди."></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <p class="eyebrow" data-i18n="04 — Каталог"></p>
+        <h2 data-i18n="Категорії"></h2>
+        <div class="cats"></div>
+      </section>
+    </section>
+
+    <section class="page page_name_catalog">
+      <p class="eyebrow" data-i18n="Каталог"></p>
+      <h1 data-i18n="Усі підписки"></h1>
+      <div class="catalog">
+        <aside class="filters card" data-i18n-label="Фільтри">
+          <div class="field">
+            <label class="field__label" for="catalog-search" data-i18n="Пошук"></label>
+            <input class="input catalog__search" id="catalog-search" type="search" data-i18n-placeholder="Назва або опис">
+          </div>
+          <div class="field">
+            <span class="field__label" data-i18n="План"></span>
+            <div class="catalog__plan"></div>
+          </div>
+          <div class="field">
+            <span class="field__label" data-i18n="Категорія"></span>
+            <div class="chips catalog__cats"></div>
+          </div>
+          <div class="field">
+            <label class="field__label" for="catalog-max"><span data-i18n="Ціна до:"></span> <span class="catalog__max-value"></span></label>
+            <input class="catalog__max" id="catalog-max" type="range" min="0" step="1">
+          </div>
+          <label class="check"><input class="catalog__free" type="checkbox"> <span data-i18n="Є безкоштовний план"></span></label>
+          <label class="check"><input class="catalog__student" type="checkbox"> <span data-i18n="Є студентська знижка"></span></label>
+          <label class="check"><input class="catalog__team" type="checkbox"> <span data-i18n="Є командний план"></span></label>
+          <div class="field">
+            <label class="field__label" for="catalog-sort" data-i18n="Сортування"></label>
+            <select class="input catalog__sort" id="catalog-sort"></select>
+          </div>
+          <button class="button button_size_small button_type_ghost catalog__reset" type="button" data-i18n="Скинути фільтри"></button>
+        </aside>
+        <div class="results">
+          <p class="muted results__count" role="status" aria-live="polite"></p>
+          <div class="grid results__list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page page_name_service">
+      <div class="service-page"></div>
+    </section>
+
+    <section class="page page_name_builder">
+      <p class="eyebrow" data-i18n="Конструктор"></p>
+      <h1 data-i18n="Ваш набір"></h1>
+      <div class="builder">
+        <div class="builder__main">
+          <div class="card">
+            <div class="card__head">
+              <h2 data-i18n="Мій набір"></h2>
+              <button class="button button_size_small button_type_ghost builder__clear" type="button" data-i18n="Очистити"></button>
+            </div>
+            <div class="set"></div>
+          </div>
+          <div class="card">
+            <h2 data-i18n="Додати сервіс"></h2>
+            <input class="input builder__search" type="search" data-i18n-placeholder="Пошук сервісу" data-i18n-label="Пошук сервісу">
+            <div class="chips builder__cats"></div>
+            <div class="adder"></div>
+          </div>
+        </div>
+        <aside class="calc card" data-i18n-label="Калькулятор"></aside>
+      </div>
+    </section>
+
+    <section class="page page_name_compare">
+      <p class="eyebrow" data-i18n="Порівняння"></p>
+      <h1 data-i18n="Порівняйте дві підписки"></h1>
+      <div class="card">
+        <div class="form-grid">
+          <div class="field">
+            <label class="field__label" for="compare-first" data-i18n="Перший сервіс"></label>
+            <select class="input compare__first" id="compare-first"></select>
+          </div>
+          <div class="field">
+            <label class="field__label" for="compare-second" data-i18n="Другий сервіс"></label>
+            <select class="input compare__second" id="compare-second"></select>
+          </div>
+        </div>
+        <p class="muted small" data-i18n="Підказка: у каталозі натисніть «Порівняти» на картках."></p>
+      </div>
+      <div class="compare__result"></div>
+    </section>
+
+    <section class="page page_name_account">
+      <p class="eyebrow" data-i18n="Акаунт"></p>
+      <div class="auth">
+        <h1 data-i18n="Вхід"></h1>
+        <div class="card">
+          <div class="auth__tabs">
+            <button class="chip auth__tab" type="button" data-tab="login" data-i18n="Вхід"></button>
+            <button class="chip auth__tab" type="button" data-tab="register" data-i18n="Реєстрація"></button>
+          </div>
+          <form class="auth__form" novalidate>
+            <div class="field auth__name">
+              <label class="field__label" for="auth-name" data-i18n="Ім'я"></label>
+              <input class="input" id="auth-name" name="name" type="text" autocomplete="name">
+            </div>
+            <div class="field">
+              <label class="field__label" for="auth-email" data-i18n="Пошта"></label>
+              <input class="input" id="auth-email" name="email" type="email" autocomplete="email">
+            </div>
+            <div class="field">
+              <label class="field__label" for="auth-password" data-i18n="Пароль"></label>
+              <input class="input" id="auth-password" name="password" type="password">
+              <span class="field__hint auth__hint" data-i18n="Щонайменше 6 символів"></span>
+            </div>
+            <p class="error auth__error" role="alert" hidden></p>
+            <button class="button button_type_primary button_size_wide auth__submit" type="submit"></button>
+          </form>
+          <p class="muted small auth__note"></p>
+        </div>
+      </div>
+      <div class="user">
+        <div class="card__head">
+          <h1 data-i18n="Мої набори"></h1>
+          <div>
+            <span class="muted user__info"></span>
+            <button class="button button_size_small button_type_ghost user__logout" type="button" data-i18n="Вийти"></button>
+          </div>
+        </div>
+        <div class="grid user__sets"></div>
+      </div>
+    </section>
+
+    <section class="page page_name_admin">
+      <p class="eyebrow" data-i18n="Адміністратор"></p>
+      <h1 data-i18n="Каталог"></h1>
+      <div class="admin__guard empty">
+        <div class="empty__icon">🔒</div>
+        <h2 data-i18n="Тільки для адміністратора"></h2>
+        <p data-i18n="Увійдіть як адміністратор, щоб керувати каталогом."></p>
+        <a class="button button_type_primary" href="#/account" data-i18n="Увійти"></a>
+      </div>
+      <div class="admin__panel">
+        <div class="hero__actions">
+          <button class="button button_type_primary admin__add" type="button" data-i18n="+ Додати сервіс"></button>
+          <button class="button button_type_ghost admin__export" type="button" data-i18n="Експорт JSON"></button>
+          <button class="button button_type_ghost admin__reset" type="button" data-i18n="Скинути до початкового"></button>
+        </div>
+        <p class="muted admin__info"></p>
+        <div class="card table-box">
+          <table class="table">
+            <thead>
+              <tr>
+                <th data-i18n="Сервіс"></th>
+                <th data-i18n="Категорія"></th>
+                <th data-i18n="Ціна/міс"></th>
+                <th data-i18n="Річний"></th>
+                <th data-i18n="Студ."></th>
+                <th data-i18n="Команда"></th>
+                <th>Free</th>
+                <th data-i18n="Ціни від"></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody class="admin__rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer wrap">
+    <p class="footer__note"></p>
+    <p><span data-i18n="Навчальний проєкт"></span> · <a href="tests.html" data-i18n="Сторінка тестів"></a></p>
   </footer>
 
-  <dialog id="dlg" aria-labelledby="dlgTitle"></dialog>
-  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog class="dialog"></dialog>
+  <div class="toast" role="status" aria-live="polite"></div>
 
   <script src="data/catalog.js"></script>
+  <script src="js/jquery.min.js"></script>
   <script src="js/calc.js"></script>
   <script src="js/i18n.js"></script>
   <script src="js/api.js"></script>

@@ -1,11 +1,3 @@
-/*
- * Subdog — шар «бекенду».
- * Усе зберігається в localStorage, але інтерфейс асинхронний (Promise), щоб бекенд-розробник
- * міг замінити тіло методів на fetch('/api/...') без змін в app.js. Схема БД — у README.
- *
- * УВАГА: це навчальна імітація. Дані лежать у браузері користувача, тому роль «admin» і самі
- * акаунти не захищені від того, хто відкриє консоль. Справжня перевірка прав можлива лише на сервері.
- */
 (function (root) {
   'use strict';
 
@@ -20,7 +12,6 @@
   });
   let K = makeKeys('subdog.');
 
-  // Якщо localStorage недоступний (приватне вікно тощо), працюємо з пам'яттю.
   const mem = {};
   function read(key, fallback) {
     try {
@@ -34,12 +25,10 @@
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { mem[key] = value; }
   }
   function remove(key) {
-    try { localStorage.removeItem(key); } catch (e) { /* ignore */ }
+    try { localStorage.removeItem(key); } catch (e) { }
     delete mem[key];
   }
 
-  /* ---------- паролі ---------- */
-  // Слабкий швидкий хеш: лише запасний варіант, коли в браузері немає Web Crypto, і для сумісності зі старими записами.
   function weakHash(str) {
     let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
     for (let i = 0; i < str.length; i++) {
@@ -53,7 +42,6 @@
   }
   const hasCrypto = () => !!(root.crypto && root.crypto.subtle && root.TextEncoder);
 
-  // PBKDF2-SHA256, 120 000 ітерацій. Префікс «p2:» відрізняє його від слабкого хеша.
   async function strongHash(password, salt) {
     const enc = new TextEncoder();
     const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
@@ -73,7 +61,6 @@
   function allUsers() {
     let u = read(K.users, null);
     if (!u) {
-      // Тестовий адміністратор для демонстрації (див. README). Хеш оновиться до PBKDF2 при першому вході.
       u = [{ id: 'u-admin', email: 'admin@subdog.local', name: 'Адміністратор', role: 'admin', salt: 's0', hash: weakHash('s0admin123') }];
       write(K.users, u);
     }
@@ -81,7 +68,6 @@
   }
   const pub = (u) => (u ? { id: u.id, email: u.email, name: u.name, role: u.role } : null);
 
-  /* ---------- каталог: база + правки адміна ---------- */
   let baseCache = null;
   async function loadBase() {
     if (baseCache) return baseCache;
@@ -90,7 +76,6 @@
       if (!res.ok) throw new Error('HTTP ' + res.status);
       baseCache = await res.json();
     } catch (e) {
-      // Відкрито як file:// — fetch заборонений, беремо копію з data/catalog.js
       if (!root.SUBDOG_DATA) throw new Error(tr('Не вдалося завантажити каталог'));
       baseCache = root.SUBDOG_DATA;
     }
@@ -99,8 +84,6 @@
 
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-  /** Правки адміна зберігаються як різниця щодо бази: { v: 2, upserts: {id: service}, deleted: [id] }.
-      Тому нові ціни з catalog.json доходять до всіх сервісів, яких адмін не чіпав. */
   function diffAgainstBase(services, base) {
     const baseById = {};
     base.services.forEach((s) => { baseById[s.id] = s; });
@@ -114,9 +97,9 @@
 
   function normalizeOverride(ov, base) {
     if (!ov) return null;
-    if (ov.cur !== 'USD') { remove(K.catalog); return null; } // правки з часів гривні не підходять до цін у доларах
+    if (ov.cur !== 'USD') { remove(K.catalog); return null; }
     if (ov.v === 2) return ov;
-    if (Array.isArray(ov.services)) { // старий формат: повний список сервісів
+    if (Array.isArray(ov.services)) {
       const n = diffAgainstBase(ov.services, base);
       write(K.catalog, n);
       return n;
@@ -136,11 +119,10 @@
     return copy;
   }
 
-  /* ---------- режим роботи: сервер (serve.ps1) або локально (localStorage) ---------- */
   let serverMode = false;
   let forcedLocal = false;
   const ready = (async function detect() {
-    if (!/^https?:$/.test(root.location ? root.location.protocol : '')) return; // file:// — сервера немає
+    if (!/^https?:$/.test(root.location ? root.location.protocol : '')) return;
     try {
       const r = await fetch('api/health', { cache: 'no-store' });
       const j = r.ok ? await r.json() : null;
@@ -180,20 +162,19 @@
       res = await fetch('api/' + path, { method: method, headers: headers, body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store' });
     } catch (e) { throw new Error(tr("Немає зв'язку із сервером")); }
     let json = null;
-    try { json = await res.json(); } catch (e) { /* порожня відповідь */ }
+    try { json = await res.json(); } catch (e) { }
     if (!res.ok) {
-      if (res.status === 401 && tok && path !== 'login' && path !== 'register') setToken(null); // сесія закінчилась
+      if (res.status === 401 && tok && path !== 'login' && path !== 'register') setToken(null);
       throw new Error(MSG[json && json.error] ? tr(MSG[json.error]) : tr('Помилка сервера ({status})', { status: res.status }));
     }
     return json;
   }
 
-  /* ---------- реалізація на сервері ---------- */
   const remote = {
     async getCatalog() {
       const base = await loadBase();
       let ov = null;
-      try { ov = (await call('GET', 'catalog-overrides')).overrides; } catch (e) { /* без правок */ }
+      try { ov = (await call('GET', 'catalog-overrides')).overrides; } catch (e) { }
       return mergeCatalog(base, ov && ov.v === 2 && ov.cur === 'USD' ? ov : null);
     },
     async saveServices(services) { await call('PUT', 'catalog-overrides', diffAgainstBase(services, await loadBase())); },
@@ -210,7 +191,7 @@
       const r = await call('POST', 'login', { email: d.email, password: d.password });
       setToken(r.token); return r.user;
     },
-    async logout() { try { await call('POST', 'logout', {}); } catch (e) { /* ignore */ } setToken(null); },
+    async logout() { try { await call('POST', 'logout', {}); } catch (e) { } setToken(null); },
     async listSets() { return getToken() ? (await call('GET', 'sets')).sets : []; },
     async saveUserSet(name, state) {
       if (!getToken()) throw new Error(tr('Увійдіть в акаунт, щоб зберегти набір'));
@@ -219,7 +200,6 @@
     async deleteUserSet(id) { await call('DELETE', 'sets/' + encodeURIComponent(id)); },
   };
 
-  /* ---------- реалізація в браузері (localStorage) ---------- */
   const local = {
     async getCatalog() {
       const base = await loadBase();
@@ -253,7 +233,7 @@
       const users = allUsers();
       const user = users.find((u) => u.email === email);
       if (!user || !(await verify(user, password))) throw E('bad_credentials');
-      if (String(user.hash).indexOf('p2:') !== 0 && hasCrypto()) { // тихо підсилюємо старий хеш
+      if (String(user.hash).indexOf('p2:') !== 0 && hasCrypto()) {
         user.hash = await strongHash(password, user.salt);
         write(K.users, users);
       }
@@ -283,14 +263,11 @@
 
   const Api = {
     ready: ready,
-    /** 'server' — працює serve.ps1, 'local' — дані лише в цьому браузері (після ready) */
     mode() { return serverMode && !forcedLocal ? 'server' : 'local'; },
-    /** Тести працюють у браузерному режимі й в окремому просторі ключів, щоб не чіпати справжні дані. */
     forceLocal(v) { forcedLocal = !!v; },
     setNamespace(prefix) { K = makeKeys(prefix); },
     namespaceKeys() { return Object.keys(K).map((k) => K[k]); },
 
-    /* поточний набір гостя й порівняння (переживають перезавантаження) */
     loadSet() { return read(K.set, null); },
     saveSet(state) { write(K.set, state); },
     loadCompare() { return read(K.compare, []); },

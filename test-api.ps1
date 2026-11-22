@@ -1,6 +1,3 @@
-# Automated tests for the Subdog server (serve.ps1). ASCII only.
-#   powershell -ExecutionPolicy Bypass -File test-api.ps1
-# Starts a throw-away server on port 8090 with a temporary data folder, runs the checks, stops it.
 param([int]$Port = 8090)
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot

@@ -334,7 +334,6 @@
     const t = setTotals(items, S.byId, opts);
     return `<article class="card preset"><div class="row between"><h3 style="margin:0">${esc(L(p, 'name'))}</h3><span class="tag">${planLabel(p.plan)}${p.plan === 'team' ? ', ' + T('{n} ос.', { n: p.seats || 3 }) : ''}</span></div>
       <p class="muted small" style="margin:0">${esc(L(p, 'tagline'))}</p>
-      <div class="monos" title="${esc(t.rows.map((r) => r.service.name).join(', '))}">${t.rows.map((r) => mono(r.service, 'sm')).join('')}</div>
       <div><span class="price num">${money(t.monthly)}</span> <span class="muted">${T('/міс')}</span><div class="muted small num">${T('{y} на рік · {n} {w}', { y: money(t.yearly), n: t.count, w: serviceWord(t.count) })}</div></div>
       <button class="btn primary" data-act="apply-preset" data-v="${p.id}">${T('Взяти цей набір')}</button></article>`;
   }
@@ -666,7 +665,6 @@
       const st = sanitizeSet(r.state);
       const t = setTotals(st.items, S.byId, { plan: st.plan, seats: st.seats, useYearly: st.yearly });
       return `<article class="card preset"><div class="row between"><h3 style="margin:0">${esc(r.name)}</h3><span class="tag">${planLabel(st.plan)}</span></div>
-        <div class="monos">${t.rows.map((x) => mono(x.service, 'sm')).join('')}</div>
         <div><span class="price num">${money(t.monthly)}</span> <span class="muted">${T('/міс')}</span><div class="muted small num">${T('{y} на рік · {n} {w}', { y: money(t.yearly), n: t.count, w: serviceWord(t.count) })}</div></div>
         <div class="muted small">${T('Збережено {d}', { d: new Date(r.createdAt).toLocaleDateString(I18n.locale()) })}</div>
         <div class="row"><button class="btn primary sm" data-act="load-saved" data-v="${r.id}">${T('Відкрити')}</button><button class="btn danger sm" data-act="del-saved" data-v="${r.id}">${T('Видалити')}</button></div></article>`;
